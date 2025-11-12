@@ -22,6 +22,9 @@ class GameLogic:
         self.ship_defs = []  # lista de dicts {id, type, cells}
         self.ship_map = {}
         self.cell_to_coords = {}
+        self.initial_cells = {}
+        self.remaining_cells = set()
+        self.missing_cells = set()
         self.board_ready = False
         self.validation_msg = "Tablero no configurado"
 
@@ -53,7 +56,11 @@ class GameLogic:
             if dx is not None and dy is not None:
                 coords_by_cell[(r, c)] = (float(dx), float(dy))
 
-        signature = frozenset((ship_type, r, c) for ship_type, cells in cells_by_type.items() for (r, c) in cells)
+        signature = frozenset(
+            (ship_type, r, c)
+            for ship_type, cells in cells_by_type.items()
+            for (r, c) in cells
+        )
 
         status = {
             "valid": False,
@@ -67,14 +74,8 @@ class GameLogic:
             self.validation_msg = status["message"]
             return status
 
-        if signature == self.current_signature and self.board_ready:
-            # mismo tablero, solo refrescamos coordenadas físicas
-            self._update_coords(coords_by_cell)
-            status.update({
-                "valid": True,
-                "message": self.validation_msg,
-                "changed": False,
-            })
+        if self.board_ready:
+            status.update(self._update_running_board(cells_by_type, coords_by_cell))
             return status
 
         valid, message, ship_defs = self._validate_layout(cells_by_type)
@@ -108,6 +109,8 @@ class GameLogic:
             for (r, c) in ship_copy["cells"]:
                 self.board[r][c] = ship_id
                 self.cell_to_coords[(r, c)] = coords_by_cell.get((r, c))
+                self.initial_cells[(r, c)] = ship_copy["type"]
+                self.remaining_cells.add((r, c))
             ship_id += 1
 
         self.board_ready = True
@@ -116,6 +119,61 @@ class GameLogic:
     def _update_coords(self, coords_by_cell):
         for key, value in coords_by_cell.items():
             self.cell_to_coords[key] = value
+
+    def _update_running_board(self, cells_by_type, coords_by_cell):
+        detected_cells = set()
+        for ship_type, cells in cells_by_type.items():
+            for cell in cells:
+                detected_cells.add(cell)
+                if cell not in self.initial_cells:
+                    return {
+                        "valid": False,
+                        "message": "Se detectaron fichas fuera del tablero inicial",
+                        "changed": False,
+                    }
+                if self.initial_cells[cell] != ship_type:
+                    return {
+                        "valid": False,
+                        "message": "El tipo de barco detectado no coincide con el inicial",
+                        "changed": False,
+                    }
+
+        initial_cells_set = set(self.initial_cells.keys())
+
+        if detected_cells - initial_cells_set:
+            return {
+                "valid": False,
+                "message": "Se detectaron celdas inexistentes",
+                "changed": False,
+            }
+
+        new_missing = initial_cells_set - detected_cells
+        newly_missing = new_missing - self.missing_cells
+
+        for (r, c) in newly_missing:
+            if not self.shots[r][c]:
+                return {
+                    "valid": False,
+                    "message": "Faltan fichas que no han sido impactadas",
+                    "changed": False,
+                }
+
+        self.missing_cells = new_missing
+        self.remaining_cells = detected_cells
+        self._update_coords(coords_by_cell)
+
+        message = "Tablero válido"
+        if self.missing_cells:
+            message += f" (impactos: {len(self.missing_cells)})"
+
+        changed = bool(newly_missing)
+        self.validation_msg = message
+
+        return {
+            "valid": True,
+            "message": message,
+            "changed": changed,
+        }
 
     def _validate_layout(self, cells_by_type):
         errors = []
@@ -243,6 +301,7 @@ class GameLogic:
                         "col": c + 1,
                         "dx_cm": coords[0] if coords is not None else None,
                         "dy_cm": coords[1] if coords is not None else None,
+                        "hit": self.shots[r][c],
                     }
                 )
             ships_info.append({"type": ship["type"], "cells": cells})

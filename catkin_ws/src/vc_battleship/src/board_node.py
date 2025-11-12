@@ -8,6 +8,7 @@ import rospy
 from cv_bridge import CvBridge, CvBridgeError
 from sensor_msgs.msg import Image
 from std_msgs.msg import String
+from std_srvs.srv import Trigger, TriggerResponse
 
 from board_config import BOARD_CAMERA_PARAMS_PATH, USE_UNDISTORT_BOARD, WARP_SIZE
 import aruco_util
@@ -35,6 +36,7 @@ class BoardNode(object):
         self.bridge = CvBridge()
         self.latest_frame = None
         self.last_frame_stamp = None
+        self.last_objects_info = []
         self.image_sub = rospy.Subscriber(
             self.image_topic, Image, self.image_callback, queue_size=1
         )
@@ -64,6 +66,10 @@ class BoardNode(object):
         cv2.setMouseCallback("Tablero ROS", board_ui.board_mouse_callback)
 
         rospy.on_shutdown(self.shutdown)
+
+        service_name = rospy.get_param("~capture_service", "/board/capture_state")
+        self.capture_srv = rospy.Service(service_name, Trigger, self.handle_capture_request)
+        rospy.loginfo(f"[BOARD] Servicio de captura disponible en {service_name}")
 
     # ------------------------------------------------------------------
     # Bucle principal
@@ -129,9 +135,20 @@ class BoardNode(object):
     def publish_objects(self, objects_info):
         if objects_info is None:
             return
+        self.last_objects_info = objects_info
         msg = String()
         msg.data = json.dumps(objects_info)
         self.pub_objects.publish(msg)
+
+    def handle_capture_request(self, _req):
+        if self.latest_frame is None or not self.last_objects_info:
+            return TriggerResponse(success=False, message="[]")
+        try:
+            payload = json.dumps(self.last_objects_info)
+        except Exception as exc:
+            rospy.logwarn(f"[BOARD] Error serializando objetos: {exc}")
+            return TriggerResponse(success=False, message=str(exc))
+        return TriggerResponse(success=True, message=payload)
 
     # ------------------------------------------------------------------
     # Gestión de teclado (idéntica a board_main pero con logs ROS)

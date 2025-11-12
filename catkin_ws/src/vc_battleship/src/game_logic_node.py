@@ -4,6 +4,7 @@ import json
 
 import rospy
 from std_msgs.msg import String
+from std_srvs.srv import Trigger
 
 from game_logic import GameLogic
 
@@ -23,10 +24,15 @@ class GameLogicNode(object):
         # suscriptor a los gestos
         rospy.Subscriber('/gesture/attack_list', String, self.cb_attack_list)
 
-        # estado del tablero detectado
-        rospy.Subscriber('/board/object_states', String, self.cb_board_objects)
-
+        self.board_service_name = rospy.get_param('~board_service', '/board/capture_state')
+        self.board_service = None
         self.last_board_status = None
+        self.last_ships_payload = None
+
+        self._connect_board_service()
+
+        # obtención inicial del tablero (si está disponible)
+        self.refresh_board_state(reason="inicio")
 
     def cb_attack_list(self, msg):
         # msg.data es algo como "[(2, 4)]" o "[(2,4), (1,5)]"
@@ -38,6 +44,13 @@ class GameLogicNode(object):
 
         if not isinstance(attacks, list):
             rospy.logwarn("[GAME] El mensaje no es una lista.")
+            return
+
+        if not attacks:
+            return
+
+        if not self.refresh_board_state(reason="pre_ataque"):
+            rospy.logwarn("[GAME] No hay tablero válido todavía")
             return
 
         for (col1, row1) in attacks:
@@ -72,16 +85,35 @@ class GameLogicNode(object):
                 )
                 self.pub_target.publish(msg_xy)
 
-    def cb_board_objects(self, msg):
+        # actualizar estado del tablero tras procesar los ataques
+        self.refresh_board_state(reason="post_ataque")
+        self._publish_ships(force=True)
+
+    def refresh_board_state(self, reason="manual"):
+        if self.board_service is None:
+            self._connect_board_service()
+        if self.board_service is None:
+            return False
+
         try:
-            objects = json.loads(msg.data)
+            resp = self.board_service()
+        except rospy.ServiceException as exc:
+            rospy.logwarn(f"[GAME] Error solicitando tablero ({reason}): {exc}")
+            return False
+
+        if not resp.success:
+            rospy.logwarn_throttle(2.0, f"[GAME] Tablero no disponible ({reason})")
+            return False
+
+        try:
+            objects = json.loads(resp.message)
         except Exception as exc:
-            rospy.logwarn(f"[GAME] No pude interpretar el estado del tablero: {exc}")
-            return
+            rospy.logwarn(f"[GAME] Respuesta inválida del tablero: {exc}")
+            return False
 
         if not isinstance(objects, list):
             rospy.logwarn("[GAME] El estado del tablero debería ser una lista")
-            return
+            return False
 
         status = self.game.update_board_from_detections(objects)
 
@@ -92,15 +124,36 @@ class GameLogicNode(object):
             self.last_board_status = status
 
         if status.get("valid"):
+            self._publish_ships()
             if status.get("changed"):
-                ships_msg = String()
-                ships_msg.data = json.dumps(
-                    self.game.get_ship_coordinates(), ensure_ascii=False
-                )
-                self.pub_ships.publish(ships_msg)
-                rospy.loginfo("[GAME] Tablero válido actualizado")
+                rospy.loginfo(f"[GAME] Tablero actualizado tras {reason}")
         else:
             rospy.logwarn_throttle(2.0, f"[GAME] Tablero inválido: {status.get('message')}")
+
+        return status.get("valid", False)
+
+    def _connect_board_service(self):
+        if self.board_service is not None:
+            return
+        try:
+            rospy.wait_for_service(self.board_service_name, timeout=5.0)
+            self.board_service = rospy.ServiceProxy(self.board_service_name, Trigger)
+            rospy.loginfo(f"[GAME] Conectado al servicio {self.board_service_name}")
+        except (rospy.ServiceException, rospy.ROSException):
+            rospy.logwarn(
+                f"[GAME] No se pudo conectar al servicio {self.board_service_name}"
+            )
+
+    def _publish_ships(self, force=False):
+        if not self.game.board_ready:
+            return
+        payload = json.dumps(self.game.get_ship_coordinates(), ensure_ascii=False)
+        if not force and payload == self.last_ships_payload:
+            return
+        ships_msg = String()
+        ships_msg.data = payload
+        self.pub_ships.publish(ships_msg)
+        self.last_ships_payload = payload
 
 def main():
     node = GameLogicNode()
