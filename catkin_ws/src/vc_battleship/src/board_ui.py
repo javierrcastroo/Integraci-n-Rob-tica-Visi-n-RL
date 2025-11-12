@@ -75,11 +75,17 @@ def draw_board_hud(img):
                 cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255,255,255), 1, cv2.LINE_AA)
     cv2.putText(img, "b: calibrar color tablero (ROI izq)", (10, y0 + dy),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255,255,255), 1, cv2.LINE_AA)
-    cv2.putText(img, "r: calibrar ORIGEN (ROI marcador)", (10, y0 + 2*dy),
+    cv2.putText(img, "o: calibrar OBJETOS genéricos (ROI ficha)", (10, y0 + 2*dy),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255,255,255), 1, cv2.LINE_AA)
-    cv2.putText(img, "o: calibrar OBJETOS (ROI ficha)", (10, y0 + 3*dy),
+    cv2.putText(img, "1: calibrar barco tamaño 1", (10, y0 + 3*dy),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255,255,255), 1, cv2.LINE_AA)
-    cv2.putText(img, "Click izq: definir ROI", (10, y0 + 4*dy),
+    cv2.putText(img, "2: calibrar barco tamaño 2", (10, y0 + 4*dy),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255,255,255), 1, cv2.LINE_AA)
+    cv2.putText(img, "r: reiniciar origen ArUco", (10, y0 + 5*dy),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255,255,255), 1, cv2.LINE_AA)
+    cv2.putText(img, "ArUco 5x5_100 ID 1: origen automático", (10, y0 + 6*dy),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.45, (200,255,200), 1, cv2.LINE_AA)
-    cv2.putText(img, "Click dcho: punto de medida", (10, y0 + 5*dy),
+    cv2.putText(img, "Click izq: definir ROI", (10, y0 + 7*dy),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.45, (200,255,200), 1, cv2.LINE_AA)
+    cv2.putText(img, "Click dcho: punto de medida", (10, y0 + 8*dy),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.45, (200,255,200), 1, cv2.LINE_AA)

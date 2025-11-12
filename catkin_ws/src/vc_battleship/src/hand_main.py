@@ -16,13 +16,24 @@ from segmentation import calibrate_from_roi, segment_hand_mask
 from features import compute_feature_vector
 from classifier import knn_predict
 from storage import save_gesture_example, load_gesture_gallery, save_sequence_json
-from collections import deque
+from collections import Counter, deque
 
 
 def majority_vote(labels):
     if not labels:
         return None
-    return max(set(labels), key=labels.count)
+    counts = Counter(labels)
+    return counts.most_common(1)[0][0]
+
+
+def majority_label_with_exclusions(labels, extra_invalid=()):
+    invalid = {None, "????"}
+    invalid.update(extra_invalid)
+    filtered = [lbl for lbl in labels if lbl not in invalid]
+    if not filtered:
+        return None, 0
+    counts = Counter(filtered)
+    return counts.most_common(1)[0]
 
 
 def main():
@@ -31,6 +42,7 @@ def main():
         raise RuntimeError("No se pudo abrir la cámara 0 (mano)")
 
     HAND_CAM_MTX = HAND_DIST = None
+    undistort_map1 = undistort_map2 = None
     if USE_UNDISTORT_HAND and os.path.exists(HAND_CAMERA_PARAMS_PATH):
         data = np.load(HAND_CAMERA_PARAMS_PATH)
         HAND_CAM_MTX = data["camera_matrix"]
@@ -43,6 +55,14 @@ def main():
     current_label = "2dedos"
     acciones = []
     recent_preds = deque(maxlen=7)
+    stable_history = deque(maxlen=150)
+    sequence_armed = False
+    pending_label = None
+
+    ARM_GESTURE = "demonio"
+    SAVE_GESTURE = "cool"
+    CONFIRM_GESTURE = "ok"
+    REJECT_GESTURE = "nook"
 
     cv2.namedWindow("Mano")
     cv2.setMouseCallback("Mano", ui.mouse_callback)
@@ -54,7 +74,17 @@ def main():
 
         # undistort
         if HAND_CAM_MTX is not None:
-            frame = cv2.undistort(frame, HAND_CAM_MTX, HAND_DIST)
+            if undistort_map1 is None:
+                h, w = frame.shape[:2]
+                undistort_map1, undistort_map2 = cv2.initUndistortRectifyMap(
+                    HAND_CAM_MTX,
+                    HAND_DIST,
+                    None,
+                    HAND_CAM_MTX,
+                    (w, h),
+                    cv2.CV_16SC2,
+                )
+            frame = cv2.remap(frame, undistort_map1, undistort_map2, cv2.INTER_LINEAR)
 
         # espejo + resize
         frame = cv2.flip(frame, 1)
@@ -84,9 +114,86 @@ def main():
         if per_frame_label is not None:
             recent_preds.append(per_frame_label)
         stable_label = majority_vote(list(recent_preds))
+        stable_history.append(stable_label)
+
+        if stable_history and len(stable_history) == stable_history.maxlen:
+            candidate_label, count = majority_label_with_exclusions(stable_history)
+            stable_history.clear()
+
+            if candidate_label is None:
+                pass
+            elif candidate_label == ARM_GESTURE:
+                if not sequence_armed:
+                    sequence_armed = True
+                    acciones.clear()
+                    pending_label = None
+                    print("[INFO] Secuencia armada tras gesto 'demonio'.")
+            elif candidate_label == SAVE_GESTURE:
+                if sequence_armed:
+                    if acciones:
+                        save_sequence_json(acciones)
+                        print("[INFO] Secuencia guardada tras gesto 'cool':", acciones)
+                    else:
+                        print("[WARN] Gesto 'cool' recibido pero la lista está vacía.")
+                    acciones.clear()
+                    sequence_armed = False
+                    pending_label = None
+                    print(
+                        "[INFO] Secuencia reiniciada, realiza 'demonio' para armar de nuevo."
+                    )
+                else:
+                    print("[WARN] Ignorando 'cool' sin haber armado la secuencia.")
+            elif candidate_label == CONFIRM_GESTURE:
+                if not sequence_armed:
+                    print(
+                        "[WARN] Ignorando 'ok' sin haber armado la secuencia con 'demonio'."
+                    )
+                elif pending_label is None:
+                    print("[WARN] No hay coordenada pendiente que confirmar.")
+                elif len(acciones) >= 2:
+                    print("[WARN] Lista llena. Usa gesto 'cool' para guardar y reiniciar.")
+                else:
+                    acciones = ui.append_action(acciones, pending_label)
+                    print(
+                        f"[INFO] Coordenada '{pending_label}' confirmada tras gesto 'ok' (cuenta={count})."
+                    )
+                    pending_label = None
+            elif candidate_label == REJECT_GESTURE:
+                if pending_label is not None:
+                    print(
+                        f"[INFO] Coordenada '{pending_label}' descartada tras gesto 'nook'."
+                    )
+                    pending_label = None
+                else:
+                    print("[WARN] 'nook' recibido pero no hay coordenada pendiente.")
+            else:
+                if not sequence_armed:
+                    print(
+                        f"[WARN] Ignorando gesto '{candidate_label}' sin armar la secuencia con 'demonio'."
+                    )
+                elif len(acciones) >= 2:
+                    print("[WARN] Lista llena. Usa gesto 'cool' para guardar y reiniciar.")
+                else:
+                    if pending_label == candidate_label:
+                        print(
+                            f"[INFO] Continúa pendiente la coordenada '{candidate_label}'."
+                        )
+                    else:
+                        pending_label = candidate_label
+                        print(
+                            f"[INFO] Gesto mayoritario en {stable_history.maxlen} frames: {candidate_label} (cuenta={count})."
+                        )
 
         # HUD
-        ui.draw_hud(vis, lower_skin, upper_skin, current_label)
+        ui.draw_hud(
+            vis,
+            lower_skin,
+            upper_skin,
+            current_label,
+            sequence_armed,
+            len(acciones),
+            pending_label,
+        )
         ui.draw_prediction(vis, stable_label, best_dist if best_dist else 0.0)
 
         # mostrar
@@ -122,12 +229,29 @@ def main():
                 print("[WARN] no hay gesto válido")
 
         elif key == ord('a'):
-            acciones = ui.append_action(acciones, stable_label)
+            if not sequence_armed:
+                print("[WARN] Necesitas hacer el gesto 'demonio' antes de añadir gestos.")
+            elif len(acciones) >= 2:
+                print("[WARN] Lista llena. Usa gesto 'cool' para guardar y reiniciar.")
+            else:
+                label_to_add = pending_label if pending_label not in (None, "????") else stable_label
+                if label_to_add in (None, "????"):
+                    print("[WARN] No hay gesto estable para añadir manualmente.")
+                else:
+                    acciones = ui.append_action(acciones, label_to_add)
+                    pending_label = None
 
         elif key == ord('p'):
-            save_sequence_json(acciones)
-            print("[INFO] secuencia guardada:", acciones)
-            acciones.clear()
+            if not acciones:
+                print("[WARN] No hay acciones para guardar.")
+            else:
+                save_sequence_json(acciones)
+                print("[INFO] secuencia guardada manualmente:", acciones)
+                acciones.clear()
+                sequence_armed = False
+                stable_history.clear()
+                pending_label = None
+                print("[INFO] Secuencia reiniciada, realiza 'demonio' para armar de nuevo.")
 
         elif key in (ord('0'), ord('1'), ord('2'), ord('3'), ord('4'), ord('5'), ord('d'), ord('p'), ord('-')):
             mapping = {
@@ -139,6 +263,7 @@ def main():
                 ord('5'): "5dedos",
                 ord('d'): "demonio",
                 ord('p'): "ok",
+                ord('n'): "nook",
                 ord('-'): "cool",
             }
             current_label = mapping[key]
