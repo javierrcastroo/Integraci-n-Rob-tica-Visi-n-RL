@@ -9,25 +9,10 @@ find_package(catkin REQUIRED COMPONENTS
   message_generation
 )
 
-# si vais a usar el service:
-add_service_files(
-  FILES
-  ResolveCell.srv
+catkin_package(
+  CATKIN_DEPENDS rospy std_msgs sensor_msgs cv_bridge
 )
 
-generate_messages(
-  DEPENDENCIES
-  std_msgs
-)
-
-catkin_package()
-
-catkin_install_python(
-  PROGRAMS
-    src/webcam_publisher.py
-    src/usb_cam_publisher.py
-    src/gesture_node.py
-    src/board_node.py
-    src/game_logic_node.py
-  DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+include_directories(
+  ${catkin_INCLUDE_DIRS}
 )

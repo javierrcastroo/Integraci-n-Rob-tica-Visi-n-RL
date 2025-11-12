@@ -1,0 +1,37 @@
+# Ignorar archivos y carpetas generadas por catkin/ROS
+catkin_ws/build/
+catkin_ws/devel/
+catkin_ws/.catkin_workspace
+
+# Ignorar caches y archivos Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Archivos temporales y editores
+*.swp
+*.swo
+.DS_Store
+.vscode/
+.idea/
+
+# Logs y bases de datos
+*.log
+*.sqlite3
+*.db
+
+# Entornos virtuales
+venv/
+env/
+
+# Distribuciones y paquetes
+*.egg-info/
+dist/
+build/
+
+# pytest/cache
+.pytest_cache/
+
+# Otros
+local_setup.*
+setup.*

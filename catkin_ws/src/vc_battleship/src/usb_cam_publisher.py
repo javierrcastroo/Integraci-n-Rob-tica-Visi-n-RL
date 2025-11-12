@@ -7,7 +7,7 @@ from sensor_msgs.msg import Image
 def main():
     rospy.init_node('usb_cam_publisher', anonymous=True)
 
-    cap = cv2.VideoCapture(1)  # cámara USB
+    cap = cv2.VideoCapture(2)  # cámara USB
     if not cap.isOpened():
         rospy.logerr("No se pudo abrir la cámara USB (índice 1)")
         return

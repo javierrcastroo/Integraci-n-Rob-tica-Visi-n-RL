@@ -3,7 +3,7 @@ import rospy
 from std_msgs.msg import String
 import ast
 
-from vc_battleship.game_logic import GameLogic
+from game_logic import GameLogic
 
 # si ya creaste el service que hicimos antes:
 # from your_pkg.srv import ResolveCell, ResolveCellRequest
