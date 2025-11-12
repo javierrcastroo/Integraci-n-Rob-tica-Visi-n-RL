@@ -98,7 +98,7 @@ def process_single_board(vis_img, frame_bgr, quad, slot, warp_size=500):
     - aplanado
     - detección de fichas dentro del tablero
     - tracking
-    - transformación a coordenadas globales (cubo/pegatina verde)
+    - transformación a coordenadas globales (marcador ArUco)
     - pintado en las dos ventanas
     """
     hsv = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2HSV)
@@ -136,7 +136,7 @@ def process_single_board(vis_img, frame_bgr, quad, slot, warp_size=500):
         slot["tracked"], obj_pts, slot["next_id"]
     )
 
-    # si tenemos origen global (verde), pasamos todo a coordenadas globales
+    # si tenemos origen global (ArUco), pasamos todo a coordenadas globales
     if board_state.GLOBAL_ORIGIN is not None and len(slot["tracked"]) > 0:
         label_objects_global(vis_img, warp_img, H_warp, quad, slot)
 
@@ -179,8 +179,8 @@ def update_tracks(tracked, detections, next_id, max_dist=35, max_miss=10):
 
 def label_objects_global(vis_img, warp_img, H_warp, quad, slot):
     """
-    Convierte las fichas del tablero a coordenadas globales (marcador verde).
-    OJO: el origen verde está FUERA del tablero, así que no lo pasamos por la homografía.
+    Convierte las fichas del tablero a coordenadas globales (marcador ArUco).
+    OJO: el origen ArUco está FUERA del tablero, así que no lo pasamos por la homografía.
     En vez de eso:
       1) medimos distancias en píxeles
       2) las convertimos a cm usando el tamaño físico del tablero
