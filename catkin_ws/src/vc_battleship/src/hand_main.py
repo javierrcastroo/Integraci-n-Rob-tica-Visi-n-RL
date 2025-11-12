@@ -43,6 +43,12 @@ def main():
     current_label = "2dedos"
     acciones = []
     recent_preds = deque(maxlen=7)
+    stable_history = deque(maxlen=150)
+    sequence_armed = False
+    last_auto_saved_label = None
+
+    ARM_GESTURE = "demonio"
+    SAVE_GESTURE = "cool"
 
     cv2.namedWindow("Mano")
     cv2.setMouseCallback("Mano", ui.mouse_callback)
@@ -84,9 +90,58 @@ def main():
         if per_frame_label is not None:
             recent_preds.append(per_frame_label)
         stable_label = majority_vote(list(recent_preds))
+        stable_history.append(stable_label)
+
+        if (
+            stable_label not in (None, "????")
+            and last_auto_saved_label is not None
+            and stable_label != last_auto_saved_label
+        ):
+            last_auto_saved_label = None
+
+        if stable_label == ARM_GESTURE and not sequence_armed:
+            sequence_armed = True
+            acciones.clear()
+            last_auto_saved_label = None
+            stable_history.clear()
+            print("[INFO] Secuencia armada tras gesto 'demonio'.")
+
+        if stable_label == SAVE_GESTURE and sequence_armed:
+            if acciones:
+                save_sequence_json(acciones)
+                print("[INFO] Secuencia guardada tras gesto 'cool':", acciones)
+            acciones.clear()
+            sequence_armed = False
+            stable_history.clear()
+            last_auto_saved_label = None
+            print("[INFO] Secuencia reiniciada, realiza 'demonio' para armar de nuevo.")
+
+        if sequence_armed:
+            if (
+                stable_history
+                and len(stable_history) == stable_history.maxlen
+                and stable_history[0] not in (None, "????", ARM_GESTURE, SAVE_GESTURE)
+                and all(lbl == stable_history[0] for lbl in stable_history)
+            ):
+                label_to_add = stable_history[0]
+                if label_to_add == last_auto_saved_label:
+                    stable_history.clear()
+                elif len(acciones) < 2:
+                    acciones = ui.append_action(acciones, label_to_add)
+                    last_auto_saved_label = label_to_add
+                    stable_history.clear()
+                else:
+                    print("[WARN] Lista llena. Usa gesto 'cool' para guardar y reiniciar.")
 
         # HUD
-        ui.draw_hud(vis, lower_skin, upper_skin, current_label)
+        ui.draw_hud(
+            vis,
+            lower_skin,
+            upper_skin,
+            current_label,
+            sequence_armed,
+            len(acciones),
+        )
         ui.draw_prediction(vis, stable_label, best_dist if best_dist else 0.0)
 
         # mostrar
@@ -122,12 +177,26 @@ def main():
                 print("[WARN] no hay gesto válido")
 
         elif key == ord('a'):
-            acciones = ui.append_action(acciones, stable_label)
+            if not sequence_armed:
+                print("[WARN] Necesitas hacer el gesto 'demonio' antes de añadir gestos.")
+            elif len(acciones) >= 2:
+                print("[WARN] Lista llena. Usa gesto 'cool' para guardar y reiniciar.")
+            else:
+                acciones = ui.append_action(acciones, stable_label)
+                if stable_label not in (None, "????"):
+                    last_auto_saved_label = stable_label
 
         elif key == ord('p'):
-            save_sequence_json(acciones)
-            print("[INFO] secuencia guardada:", acciones)
-            acciones.clear()
+            if not acciones:
+                print("[WARN] No hay acciones para guardar.")
+            else:
+                save_sequence_json(acciones)
+                print("[INFO] secuencia guardada manualmente:", acciones)
+                acciones.clear()
+                sequence_armed = False
+                stable_history.clear()
+                last_auto_saved_label = None
+                print("[INFO] Secuencia reiniciada, realiza 'demonio' para armar de nuevo.")
 
         elif key in (ord('0'), ord('1'), ord('2'), ord('3'), ord('4'), ord('5'), ord('d'), ord('p'), ord('-')):
             mapping = {
