@@ -141,16 +141,16 @@ def handle_keys(key, frame):
         else:
             print("[WARN] dibuja ROI del barco tamaño 1")
 
-    # calibrar barco de tamaño 3
-    elif key == ord("3"):
+    # calibrar barco de tamaño 2
+    elif key == ord("2"):
         if board_ui.board_roi_defined:
             x0, x1 = sorted([board_ui.bx_start, board_ui.bx_end])
             y0, y1 = sorted([board_ui.by_start, board_ui.by_end])
             roi_hsv = cv2.cvtColor(frame[y0:y1, x0:x1], cv2.COLOR_BGR2HSV)
-            lo, up = object_tracker.calibrate_ship_color_from_roi("ship3", roi_hsv)
-            print("[INFO] calibrado BARCO x3:", lo, up)
+            lo, up = object_tracker.calibrate_ship_color_from_roi("ship2", roi_hsv)
+            print("[INFO] calibrado BARCO x2:", lo, up)
         else:
-            print("[WARN] dibuja ROI del barco tamaño 3")
+            print("[WARN] dibuja ROI del barco tamaño 2")
 
     # reiniciar manualmente el origen global detectado por ArUco
     elif key == ord("r"):

@@ -79,7 +79,7 @@ def draw_board_hud(img):
                 cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255,255,255), 1, cv2.LINE_AA)
     cv2.putText(img, "1: calibrar barco tamaño 1", (10, y0 + 3*dy),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255,255,255), 1, cv2.LINE_AA)
-    cv2.putText(img, "3: calibrar barco tamaño 3", (10, y0 + 4*dy),
+    cv2.putText(img, "2: calibrar barco tamaño 2", (10, y0 + 4*dy),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255,255,255), 1, cv2.LINE_AA)
     cv2.putText(img, "r: reiniciar origen ArUco", (10, y0 + 5*dy),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255,255,255), 1, cv2.LINE_AA)

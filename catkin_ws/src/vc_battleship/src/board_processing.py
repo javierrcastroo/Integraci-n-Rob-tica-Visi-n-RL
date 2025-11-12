@@ -7,6 +7,9 @@ import board_ui
 import board_state
 
 
+TRACK_STABLE_HITS = 5
+
+
 def process_all_boards(frame, boards_state_list, cam_mtx=None, dist=None, max_boards=2, warp_size=500):
     """
     Detecta varios tableros, los asigna a los slots existentes (T1, T2),
@@ -133,7 +136,7 @@ def process_single_board(vis_img, frame_bgr, quad, slot, warp_size=500):
     # dibujar en la vista principal
     for det in obj_detections:
         cx, cy = det["pt"]
-        color = (0, 0, 255) if det["label"] == "ship3" else (0, 255, 255)
+        color = (0, 0, 255) if det["label"] == "ship2" else (0, 255, 255)
         cv2.circle(vis_img, (cx, cy), 6, color, -1)
 
     # tracking por tablero
@@ -150,7 +153,14 @@ def process_single_board(vis_img, frame_bgr, quad, slot, warp_size=500):
     return obj_mask, objects_info
 
 
-def update_tracks(tracked, detections, next_id, max_dist=35, max_miss=10):
+def update_tracks(
+    tracked,
+    detections,
+    next_id,
+    max_dist=35,
+    max_miss=10,
+    stable_hits=TRACK_STABLE_HITS,
+):
     for oid in list(tracked.keys()):
         tracked[oid]["updated"] = False
 
@@ -170,12 +180,16 @@ def update_tracks(tracked, detections, next_id, max_dist=35, max_miss=10):
             tracked[best_oid]["miss"] = 0
             tracked[best_oid]["updated"] = True
             tracked[best_oid]["label"] = label
+            hits = tracked[best_oid].get("hits", 0) + 1
+            tracked[best_oid]["hits"] = min(hits, stable_hits)
         else:
             tracked[next_id] = {
                 "pt": (cx, cy),
                 "miss": 0,
                 "updated": True,
                 "label": label,
+                "hits": 1,
+                "stable": False,
             }
             next_id += 1
 
@@ -183,6 +197,9 @@ def update_tracks(tracked, detections, next_id, max_dist=35, max_miss=10):
     for oid in list(tracked.keys()):
         if not tracked[oid].get("updated", False):
             tracked[oid]["miss"] += 1
+            hits = tracked[oid].get("hits", 0)
+            tracked[oid]["hits"] = max(hits - 1, 0)
+        tracked[oid]["stable"] = tracked[oid].get("hits", 0) >= stable_hits
         if tracked[oid]["miss"] > max_miss:
             del tracked[oid]
 
@@ -216,6 +233,8 @@ def collect_objects_info(vis_img, warp_img, H_warp, quad, slot):
     infos = []
 
     for oid, data in slot["tracked"].items():
+        if not data.get("stable", False):
+            continue
         obj_x_pix, obj_y_pix = data["pt"]
         label = data.get("label")
 
@@ -306,8 +325,12 @@ def fallback_or_decay(slot, vis_img):
         slot["miss"] += 1
         # purgar tracking de ese tablero
         for oid in list(slot["tracked"].keys()):
-            slot["tracked"][oid]["miss"] += 1
-            if slot["tracked"][oid]["miss"] > 15:
+            data = slot["tracked"][oid]
+            data["miss"] += 1
+            hits = data.get("hits", 0)
+            data["hits"] = max(hits - 1, 0)
+            data["stable"] = data.get("hits", 0) >= TRACK_STABLE_HITS
+            if data["miss"] > 15:
                 del slot["tracked"][oid]
 
 

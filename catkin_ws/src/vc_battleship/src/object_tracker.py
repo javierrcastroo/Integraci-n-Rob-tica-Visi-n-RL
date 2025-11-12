@@ -18,7 +18,7 @@ current_origin_upper = ORIG_UPPER_DEFAULT.copy()
 
 # rangos adicionales para los barcos detectados por color
 SHIP_COLOR_RANGES = {
-    "ship3": {"lower": None, "upper": None},
+    "ship2": {"lower": None, "upper": None},
     "ship1": {"lower": None, "upper": None},
 }
 
@@ -150,7 +150,7 @@ def detect_ships_in_board(hsv_frame, board_quad, max_objs_per_type=4, min_area=5
     detections = []
     combined_mask = None
 
-    for ship_type in ("ship3", "ship1"):
+    for ship_type in ("ship2", "ship1"):
         lower, upper = get_ship_range(ship_type)
         if lower is None or upper is None:
             continue

@@ -27,11 +27,19 @@ def draw_roi_rectangle(img):
                       (x_end, y_end),
                       (0, 255, 255), 2)
 
-def draw_hud(img, lower_skin, upper_skin, current_label, sequence_armed, acciones_len):
+def draw_hud(
+    img,
+    lower_skin,
+    upper_skin,
+    current_label,
+    sequence_armed,
+    acciones_len,
+    pending_label=None,
+):
     if sequence_armed:
         hud = (
             "ROI: arrastra | 'c' calib | 'g' guarda | 'a' add | 'p' json | 'q' salir"
-            " | Auto armado"
+            " | Auto armado | 'ok' confirma / 'nook' cancela"
         )
     else:
         hud = (
@@ -51,6 +59,17 @@ def draw_hud(img, lower_skin, upper_skin, current_label, sequence_armed, accione
         cv2.FONT_HERSHEY_SIMPLEX,
         0.5,
         (200, 200, 255),
+        1,
+        cv2.LINE_AA,
+    )
+    pend_txt = pending_label if pending_label else "-"
+    cv2.putText(
+        img,
+        f"Pendiente: {pend_txt}",
+        (10, 80),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.5,
+        (255, 200, 200),
         1,
         cv2.LINE_AA,
     )

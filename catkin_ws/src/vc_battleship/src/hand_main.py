@@ -57,10 +57,12 @@ def main():
     recent_preds = deque(maxlen=7)
     stable_history = deque(maxlen=150)
     sequence_armed = False
-    last_auto_saved_label = None
+    pending_label = None
 
     ARM_GESTURE = "demonio"
     SAVE_GESTURE = "cool"
+    CONFIRM_GESTURE = "ok"
+    REJECT_GESTURE = "nook"
 
     cv2.namedWindow("Mano")
     cv2.setMouseCallback("Mano", ui.mouse_callback)
@@ -114,25 +116,18 @@ def main():
         stable_label = majority_vote(list(recent_preds))
         stable_history.append(stable_label)
 
-        if (
-            stable_label not in (None, "????")
-            and last_auto_saved_label is not None
-            and stable_label != last_auto_saved_label
-        ):
-            last_auto_saved_label = None
-
         if stable_history and len(stable_history) == stable_history.maxlen:
             candidate_label, count = majority_label_with_exclusions(stable_history)
+            stable_history.clear()
 
             if candidate_label is None:
-                stable_history.clear()
+                pass
             elif candidate_label == ARM_GESTURE:
                 if not sequence_armed:
                     sequence_armed = True
                     acciones.clear()
-                    last_auto_saved_label = None
+                    pending_label = None
                     print("[INFO] Secuencia armada tras gesto 'demonio'.")
-                stable_history.clear()
             elif candidate_label == SAVE_GESTURE:
                 if sequence_armed:
                     if acciones:
@@ -142,31 +137,52 @@ def main():
                         print("[WARN] Gesto 'cool' recibido pero la lista está vacía.")
                     acciones.clear()
                     sequence_armed = False
-                    last_auto_saved_label = None
+                    pending_label = None
                     print(
                         "[INFO] Secuencia reiniciada, realiza 'demonio' para armar de nuevo."
                     )
                 else:
                     print("[WARN] Ignorando 'cool' sin haber armado la secuencia.")
-                stable_history.clear()
+            elif candidate_label == CONFIRM_GESTURE:
+                if not sequence_armed:
+                    print(
+                        "[WARN] Ignorando 'ok' sin haber armado la secuencia con 'demonio'."
+                    )
+                elif pending_label is None:
+                    print("[WARN] No hay coordenada pendiente que confirmar.")
+                elif len(acciones) >= 2:
+                    print("[WARN] Lista llena. Usa gesto 'cool' para guardar y reiniciar.")
+                else:
+                    acciones = ui.append_action(acciones, pending_label)
+                    print(
+                        f"[INFO] Coordenada '{pending_label}' confirmada tras gesto 'ok' (cuenta={count})."
+                    )
+                    pending_label = None
+            elif candidate_label == REJECT_GESTURE:
+                if pending_label is not None:
+                    print(
+                        f"[INFO] Coordenada '{pending_label}' descartada tras gesto 'nook'."
+                    )
+                    pending_label = None
+                else:
+                    print("[WARN] 'nook' recibido pero no hay coordenada pendiente.")
             else:
                 if not sequence_armed:
                     print(
                         f"[WARN] Ignorando gesto '{candidate_label}' sin armar la secuencia con 'demonio'."
                     )
-                    stable_history.clear()
-                elif candidate_label == last_auto_saved_label:
-                    stable_history.clear()
                 elif len(acciones) >= 2:
                     print("[WARN] Lista llena. Usa gesto 'cool' para guardar y reiniciar.")
-                    stable_history.clear()
                 else:
-                    acciones = ui.append_action(acciones, candidate_label)
-                    last_auto_saved_label = candidate_label
-                    print(
-                        f"[INFO] Gesto mayoritario en {stable_history.maxlen} frames: {candidate_label} (cuenta={count})."
-                    )
-                    stable_history.clear()
+                    if pending_label == candidate_label:
+                        print(
+                            f"[INFO] Continúa pendiente la coordenada '{candidate_label}'."
+                        )
+                    else:
+                        pending_label = candidate_label
+                        print(
+                            f"[INFO] Gesto mayoritario en {stable_history.maxlen} frames: {candidate_label} (cuenta={count})."
+                        )
 
         # HUD
         ui.draw_hud(
@@ -176,6 +192,7 @@ def main():
             current_label,
             sequence_armed,
             len(acciones),
+            pending_label,
         )
         ui.draw_prediction(vis, stable_label, best_dist if best_dist else 0.0)
 
@@ -217,9 +234,12 @@ def main():
             elif len(acciones) >= 2:
                 print("[WARN] Lista llena. Usa gesto 'cool' para guardar y reiniciar.")
             else:
-                acciones = ui.append_action(acciones, stable_label)
-                if stable_label not in (None, "????"):
-                    last_auto_saved_label = stable_label
+                label_to_add = pending_label if pending_label not in (None, "????") else stable_label
+                if label_to_add in (None, "????"):
+                    print("[WARN] No hay gesto estable para añadir manualmente.")
+                else:
+                    acciones = ui.append_action(acciones, label_to_add)
+                    pending_label = None
 
         elif key == ord('p'):
             if not acciones:
@@ -230,7 +250,7 @@ def main():
                 acciones.clear()
                 sequence_armed = False
                 stable_history.clear()
-                last_auto_saved_label = None
+                pending_label = None
                 print("[INFO] Secuencia reiniciada, realiza 'demonio' para armar de nuevo.")
 
         elif key in (ord('0'), ord('1'), ord('2'), ord('3'), ord('4'), ord('5'), ord('d'), ord('p'), ord('-')):
@@ -243,6 +263,7 @@ def main():
                 ord('5'): "5dedos",
                 ord('d'): "demonio",
                 ord('p'): "ok",
+                ord('n'): "nook",
                 ord('-'): "cool",
             }
             current_label = mapping[key]

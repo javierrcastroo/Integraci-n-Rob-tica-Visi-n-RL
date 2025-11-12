@@ -6,8 +6,8 @@ BOARD_SIZE = 5
 class GameLogic:
     """Valida un tablero detectado por visión y gestiona los disparos."""
 
-    REQUIRED_SHIPS = {"ship3": 1, "ship1": 3}
-    SHIP_LENGTH = {"ship3": 3, "ship1": 1}
+    REQUIRED_SHIPS = {"ship2": 1, "ship1": 3}
+    SHIP_LENGTH = {"ship2": 2, "ship1": 1}
 
     def __init__(self):
         self.reset_board()
@@ -133,10 +133,10 @@ class GameLogic:
         if errors:
             return False, "; ".join(errors), []
 
-        ship3_cells = sorted(cells_by_type.get("ship3", set()))
-        if not self._validate_ship3(ship3_cells):
-            return False, "El barco de 3 casillas debe ser recto y contiguo", []
-        ship_defs.append({"type": "ship3", "cells": ship3_cells})
+        ship2_cells = sorted(cells_by_type.get("ship2", set()))
+        if not self._validate_ship2(ship2_cells):
+            return False, "El barco de 2 casillas debe ser recto y contiguo", []
+        ship_defs.append({"type": "ship2", "cells": ship2_cells})
 
         ship1_cells = sorted(cells_by_type.get("ship1", set()))
         for cell in ship1_cells:
@@ -147,8 +147,8 @@ class GameLogic:
 
         return True, "Tablero válido", ship_defs
 
-    def _validate_ship3(self, cells):
-        if len(cells) != 3:
+    def _validate_ship2(self, cells):
+        if len(cells) != 2:
             return False
 
         rows = {r for r, _ in cells}
@@ -160,7 +160,7 @@ class GameLogic:
         else:
             return False
 
-        return seq[1] - seq[0] == 1 and seq[2] - seq[1] == 1
+        return seq[1] - seq[0] == 1
 
     def _validate_separation(self, ship_defs):
         cell_to_ship = {}

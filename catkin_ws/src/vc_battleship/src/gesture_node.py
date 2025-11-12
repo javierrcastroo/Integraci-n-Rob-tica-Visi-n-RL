@@ -43,6 +43,8 @@ def majority_label_with_exclusions(labels, extra_invalid=()):
 class GestureNode:
     ARM_GESTURE = "demonio"
     SAVE_GESTURE = "cool"
+    CONFIRM_GESTURE = "ok"
+    REJECT_GESTURE = "nook"
 
     def __init__(self):
         rospy.init_node("gesture_node", anonymous=True)
@@ -67,7 +69,7 @@ class GestureNode:
         self.stable_history = deque(maxlen=150)
         self.sequence_armed = False
         self.acciones = []
-        self.last_auto_saved_label = None
+        self.pending_label = None
 
         self.current_label = "2dedos"
 
@@ -137,30 +139,22 @@ class GestureNode:
         return vis, mask, skin_only, hsv, stable_label, best_dist
 
     def handle_state_machine(self, stable_label):
-        if (
-            stable_label not in (None, "????")
-            and self.last_auto_saved_label is not None
-            and stable_label != self.last_auto_saved_label
-        ):
-            self.last_auto_saved_label = None
-
         if len(self.stable_history) == self.stable_history.maxlen:
             candidate_label, count = majority_label_with_exclusions(self.stable_history)
+            self.stable_history.clear()
 
             if candidate_label is None:
-                self.stable_history.clear()
                 return
 
             if candidate_label == self.ARM_GESTURE:
                 if not self.sequence_armed:
                     self.sequence_armed = True
                     self.acciones.clear()
-                    self.last_auto_saved_label = None
+                    self.pending_label = None
                     rospy.loginfo(
                         "[GESTURE] Secuencia armada tras gesto '%s'.",
                         self.ARM_GESTURE,
                     )
-                self.stable_history.clear()
                 return
 
             if candidate_label == self.SAVE_GESTURE:
@@ -181,14 +175,53 @@ class GestureNode:
                         )
                     self.acciones.clear()
                     self.sequence_armed = False
-                    self.last_auto_saved_label = None
+                    self.pending_label = None
                     rospy.loginfo(
                         "[GESTURE] Secuencia reiniciada, realiza '%s' para armar de nuevo.",
                         self.ARM_GESTURE,
                     )
                 else:
-                    rospy.logwarn("[GESTURE] Ignorando '%s' sin armar la secuencia.", self.SAVE_GESTURE)
-                self.stable_history.clear()
+                    rospy.logwarn(
+                        "[GESTURE] Ignorando '%s' sin armar la secuencia.",
+                        self.SAVE_GESTURE,
+                    )
+                return
+
+            if candidate_label == self.CONFIRM_GESTURE:
+                if not self.sequence_armed:
+                    rospy.logwarn(
+                        "[GESTURE] Ignorando '%s' sin armar la secuencia.",
+                        self.CONFIRM_GESTURE,
+                    )
+                elif self.pending_label is None:
+                    rospy.logwarn("[GESTURE] No hay coordenada pendiente que confirmar.")
+                elif len(self.acciones) >= 2:
+                    rospy.logwarn(
+                        "[GESTURE] Lista llena (%s). Usa '%s' para publicar y reiniciar.",
+                        self.acciones,
+                        self.SAVE_GESTURE,
+                    )
+                else:
+                    self.acciones = ui.append_action(self.acciones, self.pending_label)
+                    rospy.loginfo(
+                        "[GESTURE] Coordenada '%s' confirmada tras gesto '%s' (cuenta=%d).",
+                        self.pending_label,
+                        self.CONFIRM_GESTURE,
+                        count,
+                    )
+                    self.pending_label = None
+                return
+
+            if candidate_label == self.REJECT_GESTURE:
+                if self.pending_label is not None:
+                    rospy.loginfo(
+                        "[GESTURE] Coordenada '%s' descartada tras gesto '%s'.",
+                        self.pending_label,
+                        self.REJECT_GESTURE,
+                    )
+                    self.pending_label = None
+                else:
+                    rospy.logwarn("[GESTURE] '%s' recibido pero no hay coordenada pendiente.", self.REJECT_GESTURE)
                 return
 
             if not self.sequence_armed:
@@ -197,11 +230,6 @@ class GestureNode:
                     candidate_label,
                     self.ARM_GESTURE,
                 )
-                self.stable_history.clear()
-                return
-
-            if candidate_label == self.last_auto_saved_label:
-                self.stable_history.clear()
                 return
 
             if len(self.acciones) >= 2:
@@ -210,25 +238,21 @@ class GestureNode:
                     self.acciones,
                     self.SAVE_GESTURE,
                 )
-                self.stable_history.clear()
                 return
 
-            label_to_add, count = majority_label_with_exclusions(
-                self.stable_history, (self.ARM_GESTURE, self.SAVE_GESTURE)
-            )
-            if label_to_add is None:
-                self.stable_history.clear()
-                return
-
-            self.acciones = ui.append_action(self.acciones, label_to_add)
-            self.last_auto_saved_label = label_to_add
-            rospy.loginfo(
-                "[GESTURE] Gesto mayoritario en %d frames: %s (cuenta=%d).",
-                self.stable_history.maxlen,
-                label_to_add,
-                count,
-            )
-            self.stable_history.clear()
+            if self.pending_label == candidate_label:
+                rospy.loginfo(
+                    "[GESTURE] Continúa pendiente la coordenada '%s'.",
+                    candidate_label,
+                )
+            else:
+                self.pending_label = candidate_label
+                rospy.loginfo(
+                    "[GESTURE] Gesto mayoritario en %d frames: %s (cuenta=%d).",
+                    self.stable_history.maxlen,
+                    candidate_label,
+                    count,
+                )
 
     def run(self):
         rate = rospy.Rate(30)
@@ -252,6 +276,7 @@ class GestureNode:
                 self.current_label,
                 self.sequence_armed,
                 len(self.acciones),
+                self.pending_label,
             )
             ui.draw_prediction(vis, stable_label, best_dist if best_dist else 0.0)
 
