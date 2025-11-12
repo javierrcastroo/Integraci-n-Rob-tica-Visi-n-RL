@@ -5,8 +5,6 @@ import os
 import cv2
 import numpy as np
 import rospy
-from cv_bridge import CvBridge, CvBridgeError
-from sensor_msgs.msg import Image
 from std_msgs.msg import String
 
 from board_config import BOARD_CAMERA_PARAMS_PATH, USE_UNDISTORT_BOARD, WARP_SIZE
@@ -24,23 +22,17 @@ class BoardNode(object):
     def __init__(self):
         rospy.init_node("board_node", anonymous=True)
 
+        self.camera_index = rospy.get_param("~camera_index", 1)
         self.frame_rate = rospy.get_param("~fps", 30.0)
         self.aruco_id = rospy.get_param("~aruco_id", aruco_util.ARUCO_ORIGIN_ID)
-        self.objects_topic = rospy.get_param(
-            "~objects_topic", "/board/object_states"
-        )
-        self.image_topic = rospy.get_param("~image_topic", "/usb_cam/image_raw")
-        self.pub_objects = rospy.Publisher(self.objects_topic, String, queue_size=10)
+        topic = rospy.get_param("~objects_topic", "/board/object_states")
+        self.pub_objects = rospy.Publisher(topic, String, queue_size=10)
 
-        self.bridge = CvBridge()
-        self.latest_frame = None
-        self.last_frame_stamp = None
-        self.image_sub = rospy.Subscriber(
-            self.image_topic, Image, self.image_callback, queue_size=1
-        )
-        rospy.loginfo(
-            f"[BOARD] Suscrito a {self.image_topic} para recibir frames del tablero"
-        )
+        self.cap = cv2.VideoCapture(self.camera_index)
+        if not self.cap.isOpened():
+            raise RuntimeError(
+                f"[BOARD] No se pudo abrir la cámara {self.camera_index}"
+            )
 
         self.cam_mtx = None
         self.dist_coeffs = None
@@ -68,16 +60,11 @@ class BoardNode(object):
     def spin(self):
         rate = rospy.Rate(self.frame_rate)
         while not rospy.is_shutdown():
-            if self.latest_frame is None:
-                rospy.logwarn_throttle(
-                    5.0,
-                    "[BOARD] Esperando imágenes del tópico"
-                    f" {self.image_topic}",
-                )
+            ok, frame = self.cap.read()
+            if not ok:
+                rospy.logwarn_throttle(5.0, "[BOARD] Frame inválido de la cámara")
                 rate.sleep()
                 continue
-
-            frame = self.latest_frame.copy()
 
             frame_proc = frame
             if self.cam_mtx is not None and self.dist_coeffs is not None:
@@ -203,22 +190,11 @@ class BoardNode(object):
         )
 
     # ------------------------------------------------------------------
-    # Callback de imagen
-    # ------------------------------------------------------------------
-    def image_callback(self, msg):
-        try:
-            frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
-        except CvBridgeError as exc:
-            rospy.logwarn_throttle(5.0, f"[BOARD] Error al convertir imagen: {exc}")
-            return
-
-        self.latest_frame = frame
-        self.last_frame_stamp = msg.header.stamp
-
-    # ------------------------------------------------------------------
     # Shutdown limpio
     # ------------------------------------------------------------------
     def shutdown(self):
+        if hasattr(self, "cap") and self.cap.isOpened():
+            self.cap.release()
         cv2.destroyAllWindows()
         rospy.loginfo("[BOARD] Nodo cerrado")
 
