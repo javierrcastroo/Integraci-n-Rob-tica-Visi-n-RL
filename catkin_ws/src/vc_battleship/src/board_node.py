@@ -144,6 +144,26 @@ class BoardNode(object):
             else:
                 rospy.logwarn("[BOARD] Dibuja un ROI sobre la ficha antes de pulsar 'o'")
 
+        elif key == ord("1"):
+            if board_ui.board_roi_defined:
+                x0, x1 = sorted([board_ui.bx_start, board_ui.bx_end])
+                y0, y1 = sorted([board_ui.by_start, board_ui.by_end])
+                roi_hsv = cv2.cvtColor(frame[y0:y1, x0:x1], cv2.COLOR_BGR2HSV)
+                lo, up = object_tracker.calibrate_ship_color_from_roi("ship1", roi_hsv)
+                rospy.loginfo(f"[BOARD] Calibrado BARCO x1: {lo} {up}")
+            else:
+                rospy.logwarn("[BOARD] Dibuja un ROI del barco tamaño 1")
+
+        elif key == ord("3"):
+            if board_ui.board_roi_defined:
+                x0, x1 = sorted([board_ui.bx_start, board_ui.bx_end])
+                y0, y1 = sorted([board_ui.by_start, board_ui.by_end])
+                roi_hsv = cv2.cvtColor(frame[y0:y1, x0:x1], cv2.COLOR_BGR2HSV)
+                lo, up = object_tracker.calibrate_ship_color_from_roi("ship3", roi_hsv)
+                rospy.loginfo(f"[BOARD] Calibrado BARCO x3: {lo} {up}")
+            else:
+                rospy.logwarn("[BOARD] Dibuja un ROI del barco tamaño 3")
+
         elif key == ord("r"):
             board_state.GLOBAL_ORIGIN = None
             board_state.GLOBAL_ORIGIN_MISS = board_state.GLOBAL_ORIGIN_MAX_MISS + 1

@@ -97,7 +97,7 @@ def handle_keys(key, frame):
         else:
             print("[WARN] dibuja ROI en 'Tablero' primero")
 
-    # calibrar color de las fichas
+    # calibrar color de las fichas genéricas (modo legado)
     elif key == ord("o"):
         if board_ui.board_roi_defined:
             x0, x1 = sorted([board_ui.bx_start, board_ui.bx_end])
@@ -108,6 +108,28 @@ def handle_keys(key, frame):
             print("[INFO] calibrado OBJETO:", lo, up)
         else:
             print("[WARN] dibuja ROI sobre la ficha")
+
+    # calibrar barco de tamaño 1
+    elif key == ord("1"):
+        if board_ui.board_roi_defined:
+            x0, x1 = sorted([board_ui.bx_start, board_ui.bx_end])
+            y0, y1 = sorted([board_ui.by_start, board_ui.by_end])
+            roi_hsv = cv2.cvtColor(frame[y0:y1, x0:x1], cv2.COLOR_BGR2HSV)
+            lo, up = object_tracker.calibrate_ship_color_from_roi("ship1", roi_hsv)
+            print("[INFO] calibrado BARCO x1:", lo, up)
+        else:
+            print("[WARN] dibuja ROI del barco tamaño 1")
+
+    # calibrar barco de tamaño 3
+    elif key == ord("3"):
+        if board_ui.board_roi_defined:
+            x0, x1 = sorted([board_ui.bx_start, board_ui.bx_end])
+            y0, y1 = sorted([board_ui.by_start, board_ui.by_end])
+            roi_hsv = cv2.cvtColor(frame[y0:y1, x0:x1], cv2.COLOR_BGR2HSV)
+            lo, up = object_tracker.calibrate_ship_color_from_roi("ship3", roi_hsv)
+            print("[INFO] calibrado BARCO x3:", lo, up)
+        else:
+            print("[WARN] dibuja ROI del barco tamaño 3")
 
     # reiniciar manualmente el origen global detectado por ArUco
     elif key == ord("r"):

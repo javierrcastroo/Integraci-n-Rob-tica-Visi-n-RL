@@ -34,14 +34,6 @@ def most_frequent_valid_label(labels, invalid_labels):
     return counts.most_common(1)[0]
 
 
-def most_frequent_valid_label(labels, invalid_labels):
-    filtered = [lbl for lbl in labels if lbl not in invalid_labels]
-    if not filtered:
-        return None, 0
-    counts = Counter(filtered)
-    return counts.most_common(1)[0]
-
-
 def main():
     cap = cv2.VideoCapture(0)
     if not cap.isOpened():

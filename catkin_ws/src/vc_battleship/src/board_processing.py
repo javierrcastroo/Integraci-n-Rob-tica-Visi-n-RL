@@ -123,27 +123,26 @@ def process_single_board(vis_img, frame_bgr, quad, slot, warp_size=500):
     warp_img = cv2.warpPerspective(frame_bgr, H_warp, (warp_size, warp_size))
 
     # detectar fichas (color objeto) dentro del tablero
-    obj_pts, obj_mask = object_tracker.detect_colored_points_in_board(
+    obj_detections, obj_mask = object_tracker.detect_ships_in_board(
         hsv,
         quad,
-        object_tracker.current_obj_lower,
-        object_tracker.current_obj_upper,
-        max_objs=4,
+        max_objs_per_type=4,
         min_area=40,
     )
 
     # dibujar en la vista principal
-    for (cx, cy) in obj_pts:
-        cv2.circle(vis_img, (cx, cy), 6, (0, 0, 255), -1)
+    for det in obj_detections:
+        cx, cy = det["pt"]
+        color = (0, 0, 255) if det["label"] == "ship3" else (0, 255, 255)
+        cv2.circle(vis_img, (cx, cy), 6, color, -1)
 
     # tracking por tablero
     slot["tracked"], slot["next_id"] = update_tracks(
-        slot["tracked"], obj_pts, slot["next_id"]
+        slot["tracked"], obj_detections, slot["next_id"]
     )
 
     # si tenemos origen global (ArUco), pasamos todo a coordenadas globales
-    if board_state.GLOBAL_ORIGIN is not None and len(slot["tracked"]) > 0:
-        label_objects_global(vis_img, warp_img, H_warp, quad, slot)
+    objects_info = collect_objects_info(vis_img, warp_img, H_warp, quad, slot)
 
     # mostrar ventana del tablero aplanado
     cv2.imshow(f"{slot['name']} aplanado", warp_img)
@@ -155,7 +154,9 @@ def update_tracks(tracked, detections, next_id, max_dist=35, max_miss=10):
     for oid in list(tracked.keys()):
         tracked[oid]["updated"] = False
 
-    for (cx, cy) in detections:
+    for det in detections:
+        cx, cy = det["pt"]
+        label = det.get("label")
         best_oid = None
         best_dist = 1e9
         for oid, data in tracked.items():
@@ -168,8 +169,14 @@ def update_tracks(tracked, detections, next_id, max_dist=35, max_miss=10):
             tracked[best_oid]["pt"] = (cx, cy)
             tracked[best_oid]["miss"] = 0
             tracked[best_oid]["updated"] = True
+            tracked[best_oid]["label"] = label
         else:
-            tracked[next_id] = {"pt": (cx, cy), "miss": 0, "updated": True}
+            tracked[next_id] = {
+                "pt": (cx, cy),
+                "miss": 0,
+                "updated": True,
+                "label": label,
+            }
             next_id += 1
 
     # purgar
@@ -210,6 +217,7 @@ def collect_objects_info(vis_img, warp_img, H_warp, quad, slot):
 
     for oid, data in slot["tracked"].items():
         obj_x_pix, obj_y_pix = data["pt"]
+        label = data.get("label")
 
         # proyectar al tablero aplanado para deducir la casilla
         obj_x_warp, obj_y_warp = cv2.perspectiveTransform(
@@ -217,10 +225,10 @@ def collect_objects_info(vis_img, warp_img, H_warp, quad, slot):
             H_warp
         )[0, 0]
 
-        cell_size = board_tracker.SQUARE_SIZE_CM
         n_cells = board_tracker.BOARD_SQUARES
-        col = int(obj_x_warp // cell_size)
-        row = int(obj_y_warp // cell_size)
+        cell_size_px = warp_img.shape[0] / float(n_cells)
+        col = int(obj_x_warp // cell_size_px)
+        row = int(obj_y_warp // cell_size_px)
         col = max(0, min(n_cells - 1, col))
         row = max(0, min(n_cells - 1, row))
         cell_label = f"{chr(ord('A') + col)}{row + 1}"
@@ -234,9 +242,11 @@ def collect_objects_info(vis_img, warp_img, H_warp, quad, slot):
             "dx_cm": None,
             "dy_cm": None,
             "has_origin": origin is not None,
+            "ship_type": label,
         }
 
-        text = f"{slot['name']}-O{oid}: {cell_label}"
+        type_suffix = f" [{label}]" if label else ""
+        text = f"{slot['name']}-O{oid}: {cell_label}{type_suffix}"
 
         if origin is not None:
             gx_pix, gy_pix = origin
@@ -276,10 +286,12 @@ def collect_objects_info(vis_img, warp_img, H_warp, quad, slot):
 
         if origin is not None:
             print(
-                f"[{slot['name']}] O{oid} -> {cell_label} | Global ({info['dx_cm']:.1f}, {info['dy_cm']:.1f}) cm"
+                f"[{slot['name']}] O{oid} -> {cell_label}{type_suffix} | Global ({info['dx_cm']:.1f}, {info['dy_cm']:.1f}) cm"
             )
         else:
-            print(f"[{slot['name']}] O{oid} -> {cell_label} | Global (sin ArUco)")
+            print(
+                f"[{slot['name']}] O{oid} -> {cell_label}{type_suffix} | Global (sin ArUco)"
+            )
 
         infos.append(info)
 
