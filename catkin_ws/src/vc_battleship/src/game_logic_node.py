@@ -1,12 +1,11 @@
 #!/usr/bin/env python
+import ast
+import json
+
 import rospy
 from std_msgs.msg import String
-import ast
 
 from game_logic import GameLogic
-
-# si ya creaste el service que hicimos antes:
-# from your_pkg.srv import ResolveCell, ResolveCellRequest
 
 class GameLogicNode(object):
     def __init__(self):
@@ -18,17 +17,16 @@ class GameLogicNode(object):
         # publicadores
         self.pub_result = rospy.Publisher('/game/shot_result', String, queue_size=10)
         self.pub_target = rospy.Publisher('/game/target_xy', String, queue_size=10)
+        self.pub_board_status = rospy.Publisher('/game/board_status', String, queue_size=10)
+        self.pub_ships = rospy.Publisher('/game/ships_xy', String, queue_size=10)
 
         # suscriptor a los gestos
         rospy.Subscriber('/gesture/attack_list', String, self.cb_attack_list)
 
-        # service del tablero (puede que no exista aún)
-        self.board_srv = None
-        try:
-            rospy.wait_for_service('/board/resolve_cell', timeout=2.0)
-            self.board_srv = rospy.ServiceProxy('/board/resolve_cell', None)  # ← lo ajustamos abajo
-        except rospy.ROSException:
-            rospy.logwarn("[GAME] Service /board/resolve_cell no disponible todavía. Solo haremos lógica.")
+        # estado del tablero detectado
+        rospy.Subscriber('/board/object_states', String, self.cb_board_objects)
+
+        self.last_board_status = None
 
     def cb_attack_list(self, msg):
         # msg.data es algo como "[(2, 4)]" o "[(2,4), (1,5)]"
@@ -49,32 +47,60 @@ class GameLogicNode(object):
 
             result = self.game.shoot(row, col)
 
+            if result.get("result") == "sin_tablero":
+                rospy.logwarn("[GAME] Ignorando disparo porque el tablero aún no es válido")
+                continue
+
             # publicar resultado de juego
             out = String()
-            out.data = f"{result['result']}|extra_turn={result['extra_turn']}|cell=({col1},{row1})"
+            base = f"{result['result']}|extra_turn={result['extra_turn']}|cell=({col1},{row1})"
+            if result.get("ship_type"):
+                base += f"|ship={result['ship_type']}"
+            out.data = base
             self.pub_result.publish(out)
             rospy.loginfo(f"[GAME] Disparo a ({col1},{row1}) -> {result}")
 
-            # intentar pedir al tablero la posición real
-            # OJO: aquí necesitamos el tipo real del service.
-            # Como antes te puse un srv custom (ResolveCell), te dejo el esquema abajo.
-            # Si aún no lo tenéis, comenta este bloque.
-            """
-            if self.board_srv is not None:
-                try:
-                    req = ResolveCellRequest()
-                    req.col = col1
-                    req.row = row1
-                    resp = self.board_srv(req)
-                    if resp.success:
-                        msg_xy = String()
-                        msg_xy.data = f"({resp.x}, {resp.y}) in {resp.frame_id}"
-                        self.pub_target.publish(msg_xy)
-                    else:
-                        rospy.logwarn("[GAME] El board no pudo resolver la casilla.")
-                except rospy.ServiceException as e:
-                    rospy.logwarn(f"[GAME] Error llamando a /board/resolve_cell: {e}")
-            """
+            coords = self.game.get_cell_coordinates(row, col)
+            if coords is not None:
+                msg_xy = String()
+                msg_xy.data = json.dumps(
+                    {
+                        "cell": [col1, row1],
+                        "dx_cm": coords[0],
+                        "dy_cm": coords[1],
+                    }
+                )
+                self.pub_target.publish(msg_xy)
+
+    def cb_board_objects(self, msg):
+        try:
+            objects = json.loads(msg.data)
+        except Exception as exc:
+            rospy.logwarn(f"[GAME] No pude interpretar el estado del tablero: {exc}")
+            return
+
+        if not isinstance(objects, list):
+            rospy.logwarn("[GAME] El estado del tablero debería ser una lista")
+            return
+
+        status = self.game.update_board_from_detections(objects)
+
+        if status != self.last_board_status:
+            status_msg = String()
+            status_msg.data = json.dumps(status, ensure_ascii=False)
+            self.pub_board_status.publish(status_msg)
+            self.last_board_status = status
+
+        if status.get("valid"):
+            if status.get("changed"):
+                ships_msg = String()
+                ships_msg.data = json.dumps(
+                    self.game.get_ship_coordinates(), ensure_ascii=False
+                )
+                self.pub_ships.publish(ships_msg)
+                rospy.loginfo("[GAME] Tablero válido actualizado")
+        else:
+            rospy.logwarn_throttle(2.0, f"[GAME] Tablero inválido: {status.get('message')}")
 
 def main():
     node = GameLogicNode()
