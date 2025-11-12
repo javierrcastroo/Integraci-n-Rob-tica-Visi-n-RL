@@ -44,6 +44,9 @@ class BoardNode(object):
 
         self.cam_mtx = None
         self.dist_coeffs = None
+        self.new_cam_mtx = None
+        self.map1 = None
+        self.map2 = None
         if USE_UNDISTORT_BOARD and os.path.exists(BOARD_CAMERA_PARAMS_PATH):
             data = np.load(BOARD_CAMERA_PARAMS_PATH)
             self.cam_mtx = data["camera_matrix"]
@@ -69,6 +72,7 @@ class BoardNode(object):
         rate = rospy.Rate(self.frame_rate)
         while not rospy.is_shutdown():
             if self.latest_frame is None:
+                self.show_waiting_screen()
                 rospy.logwarn_throttle(
                     5.0,
                     f"[BOARD] Esperando imágenes del tópico {self.image_topic}",
@@ -78,9 +82,7 @@ class BoardNode(object):
 
             frame = self.latest_frame.copy()
 
-            frame_proc = frame
-            if self.cam_mtx is not None and self.dist_coeffs is not None:
-                frame_proc = cv2.undistort(frame, self.cam_mtx, self.dist_coeffs)
+            frame_proc = self.apply_undistort(frame)
 
             # actualizar el origen global mediante ArUco
             try:
@@ -95,8 +97,8 @@ class BoardNode(object):
             vis, mask_board, obj_mask, objects_info = bp.process_all_boards(
                 frame_proc,
                 self.boards_state,
-                cam_mtx=self.cam_mtx,
-                dist=self.dist_coeffs,
+                cam_mtx=None,
+                dist=None,
                 max_boards=2,
                 warp_size=WARP_SIZE,
             )
@@ -213,6 +215,33 @@ class BoardNode(object):
 
         self.latest_frame = frame
         self.last_frame_stamp = msg.header.stamp
+        rospy.loginfo_once("[BOARD] Recibido primer frame desde la cámara ROS")
+
+        if (
+            self.cam_mtx is not None
+            and self.dist_coeffs is not None
+            and self.map1 is None
+            and self.map2 is None
+        ):
+            self._init_undistort_maps(frame.shape[1], frame.shape[0])
+
+    # ------------------------------------------------------------------
+    # Pantalla de espera
+    # ------------------------------------------------------------------
+    def show_waiting_screen(self):
+        placeholder = np.zeros((480, 640, 3), dtype=np.uint8)
+        cv2.putText(
+            placeholder,
+            "Esperando frames...",
+            (40, 240),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            1.0,
+            (0, 255, 255),
+            2,
+            cv2.LINE_AA,
+        )
+        cv2.imshow("Tablero ROS", placeholder)
+        cv2.waitKey(1)
 
     # ------------------------------------------------------------------
     # Shutdown limpio
@@ -220,6 +249,33 @@ class BoardNode(object):
     def shutdown(self):
         cv2.destroyAllWindows()
         rospy.loginfo("[BOARD] Nodo cerrado")
+
+    def apply_undistort(self, frame):
+        if (
+            self.cam_mtx is None
+            or self.dist_coeffs is None
+            or self.map1 is None
+            or self.map2 is None
+        ):
+            return frame
+        return cv2.remap(frame, self.map1, self.map2, cv2.INTER_LINEAR)
+
+    def _init_undistort_maps(self, width, height):
+        self.new_cam_mtx, _ = cv2.getOptimalNewCameraMatrix(
+            self.cam_mtx, self.dist_coeffs, (width, height), 0
+        )
+        self.map1, self.map2 = cv2.initUndistortRectifyMap(
+            self.cam_mtx,
+            self.dist_coeffs,
+            None,
+            self.new_cam_mtx,
+            (width, height),
+            cv2.CV_16SC2,
+        )
+        rospy.loginfo(
+            "[BOARD] Mapas de undistort preparados para %dx%d"
+            % (width, height)
+        )
 
 
 if __name__ == "__main__":

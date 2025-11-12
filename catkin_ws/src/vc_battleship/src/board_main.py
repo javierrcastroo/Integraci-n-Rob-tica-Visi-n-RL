@@ -25,6 +25,9 @@ def main():
         dist = data["dist_coeffs"]
         print("[INFO] Undistort activado")
 
+    map1 = map2 = None
+    new_cam_mtx = None
+
     # dos tableros
     boards_state_list = [
         board_state.init_board_state("T1"),
@@ -39,15 +42,30 @@ def main():
         if not ok:
             break
 
+        frame_proc = frame
+        if mtx is not None and dist is not None:
+            if map1 is None or map2 is None:
+                h, w = frame.shape[:2]
+                new_cam_mtx, _ = cv2.getOptimalNewCameraMatrix(
+                    mtx, dist, (w, h), 0
+                )
+                map1, map2 = cv2.initUndistortRectifyMap(
+                    mtx, dist, None, new_cam_mtx, (w, h), cv2.CV_16SC2
+                )
+                print(
+                    f"[INFO] Mapas de undistort listos para resolución {w}x{h}"
+                )
+            frame_proc = cv2.remap(frame, map1, map2, cv2.INTER_LINEAR)
+
         # actualizar el origen global usando el marcador ArUco
-        aruco_util.update_global_origin_from_aruco(frame)
+        aruco_util.update_global_origin_from_aruco(frame_proc)
 
         # procesar todos los tableros con el origen global actual
         vis, mask_b, mask_o, _ = bp.process_all_boards(
-            frame,
+            frame_proc,
             boards_state_list,
-            cam_mtx=mtx,
-            dist=dist,
+            cam_mtx=None,
+            dist=None,
             max_boards=2,
             warp_size=WARP_SIZE,
         )
@@ -78,7 +96,7 @@ def main():
         if key in (27, ord("q")):
             break
 
-        handle_keys(key, frame)
+        handle_keys(key, frame_proc)
 
     cap.release()
     cv2.destroyAllWindows()
