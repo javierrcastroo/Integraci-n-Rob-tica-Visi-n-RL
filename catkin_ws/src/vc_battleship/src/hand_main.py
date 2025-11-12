@@ -16,13 +16,21 @@ from segmentation import calibrate_from_roi, segment_hand_mask
 from features import compute_feature_vector
 from classifier import knn_predict
 from storage import save_gesture_example, load_gesture_gallery, save_sequence_json
-from collections import deque
+from collections import Counter, deque
 
 
 def majority_vote(labels):
     if not labels:
         return None
     return max(set(labels), key=labels.count)
+
+
+def most_frequent_valid_label(labels, invalid_labels):
+    filtered = [lbl for lbl in labels if lbl not in invalid_labels]
+    if not filtered:
+        return None, 0
+    counts = Counter(filtered)
+    return counts.most_common(1)[0]
 
 
 def main():
@@ -117,6 +125,13 @@ def main():
             print("[INFO] Secuencia reiniciada, realiza 'demonio' para armar de nuevo.")
 
         if sequence_armed:
+            if stable_history and len(stable_history) == stable_history.maxlen:
+                label_to_add, count = most_frequent_valid_label(
+                    stable_history, (None, "????", ARM_GESTURE, SAVE_GESTURE)
+                )
+                if label_to_add is None:
+                    stable_history.clear()
+                elif label_to_add == last_auto_saved_label:
             if (
                 stable_history
                 and len(stable_history) == stable_history.maxlen
@@ -129,6 +144,13 @@ def main():
                 elif len(acciones) < 2:
                     acciones = ui.append_action(acciones, label_to_add)
                     last_auto_saved_label = label_to_add
+                    print(
+                        f"[INFO] Gesto mayoritario en {stable_history.maxlen} frames: {label_to_add} (cuenta={count})."
+                    )
+                    stable_history.clear()
+                else:
+                    print("[WARN] Lista llena. Usa gesto 'cool' para guardar y reiniciar.")
+                    stable_history.clear()
                     stable_history.clear()
                 else:
                     print("[WARN] Lista llena. Usa gesto 'cool' para guardar y reiniciar.")
