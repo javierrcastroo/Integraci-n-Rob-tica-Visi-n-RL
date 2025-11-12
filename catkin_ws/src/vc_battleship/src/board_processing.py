@@ -142,7 +142,8 @@ def process_single_board(vis_img, frame_bgr, quad, slot, warp_size=500):
     )
 
     # si tenemos origen global (ArUco), pasamos todo a coordenadas globales
-    objects_info = collect_objects_info(vis_img, warp_img, H_warp, quad, slot)
+    if board_state.GLOBAL_ORIGIN is not None and len(slot["tracked"]) > 0:
+        label_objects_global(vis_img, warp_img, H_warp, quad, slot)
 
     # mostrar ventana del tablero aplanado
     cv2.imshow(f"{slot['name']} aplanado", warp_img)
