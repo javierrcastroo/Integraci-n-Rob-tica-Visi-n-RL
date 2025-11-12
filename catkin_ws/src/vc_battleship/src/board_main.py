@@ -57,6 +57,9 @@ def main():
                 )
             frame_proc = cv2.remap(frame, map1, map2, cv2.INTER_LINEAR)
 
+        # modo espejo para que los movimientos coincidan visualmente
+        frame_proc = cv2.flip(frame_proc, 1)
+
         # actualizar el origen global usando el marcador ArUco
         aruco_util.update_global_origin_from_aruco(frame_proc)
 

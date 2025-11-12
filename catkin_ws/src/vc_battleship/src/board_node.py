@@ -83,6 +83,7 @@ class BoardNode(object):
             frame = self.latest_frame.copy()
 
             frame_proc = self.apply_undistort(frame)
+            frame_proc = cv2.flip(frame_proc, 1)
 
             # actualizar el origen global mediante ArUco
             try:
