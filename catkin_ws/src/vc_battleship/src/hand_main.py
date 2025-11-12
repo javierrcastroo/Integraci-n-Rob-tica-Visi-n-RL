@@ -132,6 +132,14 @@ def main():
                 if label_to_add is None:
                     stable_history.clear()
                 elif label_to_add == last_auto_saved_label:
+            if (
+                stable_history
+                and len(stable_history) == stable_history.maxlen
+                and stable_history[0] not in (None, "????", ARM_GESTURE, SAVE_GESTURE)
+                and all(lbl == stable_history[0] for lbl in stable_history)
+            ):
+                label_to_add = stable_history[0]
+                if label_to_add == last_auto_saved_label:
                     stable_history.clear()
                 elif len(acciones) < 2:
                     acciones = ui.append_action(acciones, label_to_add)
@@ -143,6 +151,9 @@ def main():
                 else:
                     print("[WARN] Lista llena. Usa gesto 'cool' para guardar y reiniciar.")
                     stable_history.clear()
+                    stable_history.clear()
+                else:
+                    print("[WARN] Lista llena. Usa gesto 'cool' para guardar y reiniciar.")
 
         # HUD
         ui.draw_hud(
