@@ -27,14 +27,33 @@ def draw_roi_rectangle(img):
                       (x_end, y_end),
                       (0, 255, 255), 2)
 
-def draw_hud(img, lower_skin, upper_skin, current_label):
-    hud = "ROI: arrastra | 'c' calib | 'g' guarda | 'a' add | 'p' json | 'q' salir"
+def draw_hud(img, lower_skin, upper_skin, current_label, sequence_armed, acciones_len):
+    if sequence_armed:
+        hud = (
+            "ROI: arrastra | 'c' calib | 'g' guarda | 'a' add | 'p' json | 'q' salir"
+            " | Auto armado"
+        )
+    else:
+        hud = (
+            "ROI: arrastra | 'c' calib | 'g' guarda | 'a' add | 'p' json | 'q' salir"
+            " | Haz 'demonio' para armar"
+        )
     cv2.putText(img, hud, (10, 20),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.5,
                 (255, 255, 255), 1, cv2.LINE_AA)
     cv2.putText(img, f"Label actual: {current_label}",
                 (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
                 (180, 255, 180), 1, cv2.LINE_AA)
+    cv2.putText(
+        img,
+        f"Lista auto: {acciones_len}/2",
+        (10, 60),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.5,
+        (200, 200, 255),
+        1,
+        cv2.LINE_AA,
+    )
 
     if lower_skin is not None and upper_skin is not None:
         cv2.putText(img,

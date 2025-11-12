@@ -2,7 +2,7 @@
 import cv2
 import numpy as np
 
-# color por defecto de objetos (luego lo calibras con 'o')
+# color por defecto de objetos genéricos (seguimos permitiendo la tecla 'o')
 OBJ_LOWER_DEFAULT = np.array([0, 120, 80], dtype=np.uint8)
 OBJ_UPPER_DEFAULT = np.array([15, 255, 255], dtype=np.uint8)
 
@@ -15,6 +15,12 @@ current_obj_upper = OBJ_UPPER_DEFAULT.copy()
 
 current_origin_lower = ORIG_LOWER_DEFAULT.copy()
 current_origin_upper = ORIG_UPPER_DEFAULT.copy()
+
+# rangos adicionales para los barcos detectados por color
+SHIP_COLOR_RANGES = {
+    "ship3": {"lower": None, "upper": None},
+    "ship1": {"lower": None, "upper": None},
+}
 
 
 def _calibrate_from_roi(hsv_roi, p_low=5, p_high=95, margin_h=3, margin_sv=20):
@@ -48,6 +54,21 @@ def calibrate_object_color_from_roi(hsv_roi):
 
 def calibrate_origin_color_from_roi(hsv_roi):
     return _calibrate_from_roi(hsv_roi)
+
+
+def calibrate_ship_color_from_roi(ship_type, hsv_roi):
+    """Guarda el rango HSV asociado a un tipo de barco concreto."""
+    if ship_type not in SHIP_COLOR_RANGES:
+        raise ValueError(f"Tipo de barco desconocido: {ship_type}")
+    lower, upper = _calibrate_from_roi(hsv_roi)
+    SHIP_COLOR_RANGES[ship_type]["lower"] = lower
+    SHIP_COLOR_RANGES[ship_type]["upper"] = upper
+    return lower, upper
+
+
+def get_ship_range(ship_type):
+    data = SHIP_COLOR_RANGES.get(ship_type, {})
+    return data.get("lower"), data.get("upper")
 
 
 def keep_largest_components(mask, k=4, min_area=50):
@@ -122,3 +143,46 @@ def detect_colored_points_in_board(hsv_frame, board_quad, lower, upper,
             break
 
     return centers, mask
+
+
+def detect_ships_in_board(hsv_frame, board_quad, max_objs_per_type=4, min_area=50):
+    """Detecta los barcos diferenciados por color calibrado."""
+    detections = []
+    combined_mask = None
+
+    for ship_type in ("ship3", "ship1"):
+        lower, upper = get_ship_range(ship_type)
+        if lower is None or upper is None:
+            continue
+
+        centers, mask = detect_colored_points_in_board(
+            hsv_frame,
+            board_quad,
+            lower,
+            upper,
+            max_objs=max_objs_per_type,
+            min_area=min_area,
+        )
+
+        if mask is not None:
+            combined_mask = mask if combined_mask is None else cv2.bitwise_or(combined_mask, mask)
+
+        for cx, cy in centers:
+            detections.append({"pt": (cx, cy), "label": ship_type})
+
+    # fallback al color genérico si no hay calibraciones específicas
+    if not detections and current_obj_lower is not None and current_obj_upper is not None:
+        centers, mask = detect_colored_points_in_board(
+            hsv_frame,
+            board_quad,
+            current_obj_lower,
+            current_obj_upper,
+            max_objs=max_objs_per_type,
+            min_area=min_area,
+        )
+        if mask is not None:
+            combined_mask = mask if combined_mask is None else cv2.bitwise_or(combined_mask, mask)
+        for cx, cy in centers:
+            detections.append({"pt": (cx, cy), "label": "generic"})
+
+    return detections, combined_mask
