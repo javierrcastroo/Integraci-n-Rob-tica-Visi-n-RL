@@ -1,207 +1,187 @@
 #!/usr/bin/env python
-import rospy
-from sensor_msgs.msg import Image
-from cv_bridge import CvBridge
+import json
+import os
+
 import cv2
 import numpy as np
+import rospy
+from std_msgs.msg import String
 
+from board_config import BOARD_CAMERA_PARAMS_PATH, USE_UNDISTORT_BOARD, WARP_SIZE
+import aruco_util
+import board_processing as bp
 import board_state
-import board_processing
-import aruco_utils
+import board_tracker
+import board_ui
+import object_tracker
 
 
 class BoardNode(object):
+    """Nodo ROS que replica el comportamiento de board_main para el tablero."""
+
     def __init__(self):
-        rospy.init_node('board_node', anonymous=True)
+        rospy.init_node("board_node", anonymous=True)
 
-        self.bridge = CvBridge()
-        self.last_frame = None
+        self.camera_index = rospy.get_param("~camera_index", 1)
+        self.frame_rate = rospy.get_param("~fps", 30.0)
+        self.aruco_id = rospy.get_param("~aruco_id", aruco_util.ARUCO_ORIGIN_ID)
+        topic = rospy.get_param("~objects_topic", "/board/object_states")
+        self.pub_objects = rospy.Publisher(topic, String, queue_size=10)
 
-        self.boards_state_list = [
+        self.cap = cv2.VideoCapture(self.camera_index)
+        if not self.cap.isOpened():
+            raise RuntimeError(
+                f"[BOARD] No se pudo abrir la cámara {self.camera_index}"
+            )
+
+        self.cam_mtx = None
+        self.dist_coeffs = None
+        if USE_UNDISTORT_BOARD and os.path.exists(BOARD_CAMERA_PARAMS_PATH):
+            data = np.load(BOARD_CAMERA_PARAMS_PATH)
+            self.cam_mtx = data["camera_matrix"]
+            self.dist_coeffs = data["dist_coeffs"]
+            rospy.loginfo("[BOARD] Undistort activado para la cámara del tablero")
+        else:
+            rospy.loginfo("[BOARD] Sin parámetros de calibración o undistort desactivado")
+
+        self.boards_state = [
             board_state.init_board_state("T1"),
             board_state.init_board_state("T2"),
         ]
 
-        # HSV por defecto
-        self.tablero_hsv = ((30, 50, 50), (90, 255, 255))
-        self.objetos_hsv = ((0, 50, 50), (179, 255, 255))
-        self.selection_mode = "board"
+        cv2.namedWindow("Tablero ROS")
+        cv2.setMouseCallback("Tablero ROS", board_ui.board_mouse_callback)
 
-        # para el drag
-        self.dragging = False
-        self.start_pt = (0, 0)
-        self.end_pt = (0, 0)
+        rospy.on_shutdown(self.shutdown)
 
-        # buffers de visualización (los rellenará el timer)
-        self.vis_img = None
-        self.mask_board_img = None
-        self.obj_mask_img = None
-        self.debug_img = None
+    # ------------------------------------------------------------------
+    # Bucle principal
+    # ------------------------------------------------------------------
+    def spin(self):
+        rate = rospy.Rate(self.frame_rate)
+        while not rospy.is_shutdown():
+            ok, frame = self.cap.read()
+            if not ok:
+                rospy.logwarn_throttle(5.0, "[BOARD] Frame inválido de la cámara")
+                rate.sleep()
+                continue
 
-        rospy.Subscriber('/usb_cam/image_raw', Image, self.cb_image)
+            frame_proc = frame
+            if self.cam_mtx is not None and self.dist_coeffs is not None:
+                frame_proc = cv2.undistort(frame, self.cam_mtx, self.dist_coeffs)
 
-        # timer de procesamiento
-        self.timer = rospy.Timer(rospy.Duration(1.0/15.0), self.timer_cb)
+            # actualizar el origen global mediante ArUco
+            try:
+                aruco_util.update_global_origin_from_aruco(
+                    frame_proc, aruco_id=self.aruco_id
+                )
+            except Exception as exc:
+                rospy.logwarn_throttle(
+                    5.0, f"[BOARD] Error actualizando origen ArUco: {exc}"
+                )
 
-        # aruco
-        self.aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_5X5_100)
-        self.aruco_params = cv2.aruco.DetectorParameters()
-        self.target_aruco_id = rospy.get_param("~aruco_id", 0)
-
-        # ventanas + ratón
-        cv2.namedWindow("Tableros ROS")
-        cv2.setMouseCallback("Tableros ROS", self.on_mouse)
-
-    # ===== ROS =====
-    def cb_image(self, msg):
-        self.last_frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
-
-    # ===== ratón =====
-    def on_mouse(self, event, x, y, flags, param):
-        if self.last_frame is None:
-            return
-
-        if event == cv2.EVENT_LBUTTONDOWN:
-            self.dragging = True
-            self.start_pt = (x, y)
-            self.end_pt = (x, y)
-        elif event == cv2.EVENT_MOUSEMOVE and self.dragging:
-            self.end_pt = (x, y)
-        elif event == cv2.EVENT_LBUTTONUP:
-            self.dragging = False
-            self.end_pt = (x, y)
-            self.extract_hsv_from_roi()
-
-    def extract_hsv_from_roi(self):
-        if self.last_frame is None:
-            return
-
-        x1, y1 = self.start_pt
-        x2, y2 = self.end_pt
-        x_min, x_max = sorted([x1, x2])
-        y_min, y_max = sorted([y1, y2])
-
-        if x_max - x_min < 5 or y_max - y_min < 5:
-            rospy.logwarn("ROI demasiado pequeño, no actualizo HSV")
-            return
-
-        roi_bgr = self.last_frame[y_min:y_max, x_min:x_max]
-        roi_hsv = cv2.cvtColor(roi_bgr, cv2.COLOR_BGR2HSV)
-
-        h, s, v = cv2.split(roi_hsv)
-        h_min, h_max = int(h.min()), int(h.max())
-        s_min, s_max = int(s.min()), int(s.max())
-        v_min, v_max = int(v.min()), int(v.max())
-
-        # margen
-        h_min = max(h_min - 5, 0)
-        s_min = max(s_min - 10, 0)
-        v_min = max(v_min - 10, 0)
-        h_max = min(h_max + 5, 179)
-        s_max = min(s_max + 10, 255)
-        v_max = min(v_max + 10, 255)
-
-        hsv_range = ((h_min, s_min, v_min), (h_max, s_max, v_max))
-
-        if self.selection_mode == "board":
-            self.tablero_hsv = hsv_range
-            rospy.loginfo("HSV tablero = %s", str(hsv_range))
-        else:
-            self.objetos_hsv = hsv_range
-            rospy.loginfo("HSV objetos = %s", str(hsv_range))
-
-    # ===== aruco debug =====
-    def detect_and_draw_aruco(self, frame):
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        detector = cv2.aruco.ArucoDetector(self.aruco_dict, self.aruco_params)
-        corners, ids, _ = detector.detectMarkers(gray)
-        seen = False
-        if ids is not None:
-            cv2.aruco.drawDetectedMarkers(frame, corners, ids)
-            for i, marker_id in enumerate(ids.flatten()):
-                if marker_id == self.target_aruco_id:
-                    seen = True
-        return seen
-
-    # ===== llamada segura al procesamiento =====
-    def safe_process_all_boards(self, frame):
-        try:
-            return board_processing.process_all_boards(
-                frame,
-                self.boards_state_list,
-                cam_mtx=None,
-                dist=None,
+            vis, mask_board, obj_mask, objects_info = bp.process_all_boards(
+                frame_proc,
+                self.boards_state,
+                cam_mtx=self.cam_mtx,
+                dist=self.dist_coeffs,
                 max_boards=2,
-                warp_size=500,
-                tablero_hsv=self.tablero_hsv,
-                objetos_hsv=self.objetos_hsv
-            )
-        except TypeError:
-            return board_processing.process_all_boards(
-                frame,
-                self.boards_state_list,
-                cam_mtx=None,
-                dist=None,
-                max_boards=2,
-                warp_size=500
+                warp_size=WARP_SIZE,
             )
 
-    # ===== timer: SOLO calcula y guarda =====
-    def timer_cb(self, event):
-        if self.last_frame is None:
+            self.publish_objects(objects_info)
+            self.draw_origin_indicator(vis)
+
+            cv2.imshow("Tablero ROS", vis)
+            if mask_board is not None:
+                cv2.imshow("Mascara tablero", mask_board)
+            if obj_mask is not None:
+                cv2.imshow("Mascara objetos", obj_mask)
+
+            key = cv2.waitKey(1) & 0xFF
+            if key in (27, ord("q")):
+                rospy.signal_shutdown("Salida solicitada por el usuario")
+                break
+
+            if key != 255:
+                self.handle_keys(key, frame_proc)
+
+            rate.sleep()
+
+    # ------------------------------------------------------------------
+    # Publicación hacia game_logic
+    # ------------------------------------------------------------------
+    def publish_objects(self, objects_info):
+        if objects_info is None:
             return
+        msg = String()
+        msg.data = json.dumps(objects_info)
+        self.pub_objects.publish(msg)
 
-        frame = self.last_frame.copy()
+    # ------------------------------------------------------------------
+    # Gestión de teclado (idéntica a board_main pero con logs ROS)
+    # ------------------------------------------------------------------
+    def handle_keys(self, key, frame):
+        if key == ord("b"):
+            if board_ui.board_roi_defined:
+                x0, x1 = sorted([board_ui.bx_start, board_ui.bx_end])
+                y0, y1 = sorted([board_ui.by_start, board_ui.by_end])
+                roi_hsv = cv2.cvtColor(frame[y0:y1, x0:x1], cv2.COLOR_BGR2HSV)
+                lo, up = board_tracker.calibrate_board_color_from_roi(roi_hsv)
+                board_tracker.current_lower, board_tracker.current_upper = lo, up
+                rospy.loginfo(f"[BOARD] Calibrado TABLERO: {lo} {up}")
+            else:
+                rospy.logwarn("[BOARD] Dibuja un ROI del tablero antes de pulsar 'b'")
 
-        # aruco tuyo
-        try:
-            aruco_utils.update_global_origin_from_aruco(frame, aruco_id=self.target_aruco_id)
-        except Exception as e:
-            rospy.logwarn_throttle(5.0, "Fallo update_global_origin_from_aruco: %s" % str(e))
+        elif key == ord("o"):
+            if board_ui.board_roi_defined:
+                x0, x1 = sorted([board_ui.bx_start, board_ui.bx_end])
+                y0, y1 = sorted([board_ui.by_start, board_ui.by_end])
+                roi_hsv = cv2.cvtColor(frame[y0:y1, x0:x1], cv2.COLOR_BGR2HSV)
+                lo, up = object_tracker.calibrate_object_color_from_roi(roi_hsv)
+                object_tracker.current_obj_lower, object_tracker.current_obj_upper = lo, up
+                rospy.loginfo(f"[BOARD] Calibrado OBJETO: {lo} {up}")
+            else:
+                rospy.logwarn("[BOARD] Dibuja un ROI sobre la ficha antes de pulsar 'o'")
 
-        # aruco debug
-        debug_frame = frame.copy()
-        seen = self.detect_and_draw_aruco(debug_frame)
-        if not seen:
-            rospy.logwarn_throttle(5.0, "No veo ArUco ID=%d" % self.target_aruco_id)
+        elif key == ord("r"):
+            board_state.GLOBAL_ORIGIN = None
+            board_state.GLOBAL_ORIGIN_MISS = board_state.GLOBAL_ORIGIN_MAX_MISS + 1
+            rospy.loginfo(
+                f"[BOARD] Origen global reiniciado. Esperando ArUco ID {self.aruco_id}"
+            )
 
-        vis, mask_board, obj_mask, _ = self.safe_process_all_boards(frame)
+    # ------------------------------------------------------------------
+    # Dibujar origen global
+    # ------------------------------------------------------------------
+    def draw_origin_indicator(self, vis_img):
+        if board_state.GLOBAL_ORIGIN is None:
+            return
+        gx, gy = board_state.GLOBAL_ORIGIN
+        cv2.circle(vis_img, (int(gx), int(gy)), 10, (0, 255, 0), -1)
+        cv2.putText(
+            vis_img,
+            "ORIGEN (ArUco)",
+            (int(gx) + 10, int(gy) - 10),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.6,
+            (0, 255, 0),
+            2,
+        )
 
-        # si estás arrastrando, dibuja el rectángulo
-        if self.dragging:
-            cv2.rectangle(vis, self.start_pt, self.end_pt, (0, 255, 0), 2)
+    # ------------------------------------------------------------------
+    # Shutdown limpio
+    # ------------------------------------------------------------------
+    def shutdown(self):
+        if hasattr(self, "cap") and self.cap.isOpened():
+            self.cap.release()
+        cv2.destroyAllWindows()
+        rospy.loginfo("[BOARD] Nodo cerrado")
 
-        # guarda todo en atributos para que el main lo muestre
-        self.vis_img = vis
-        self.mask_board_img = mask_board
-        self.obj_mask_img = obj_mask
-        self.debug_img = debug_frame
 
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     node = BoardNode()
-
-    # bucle principal SOLO para mostrar y leer teclas
-    rate = rospy.Rate(30)
-    while not rospy.is_shutdown():
-        # mostrar solo si hay algo
-        if node.vis_img is not None:
-            cv2.imshow("Tableros ROS", node.vis_img)
-        if node.mask_board_img is not None:
-            cv2.imshow("Mask tablero", node.mask_board_img)
-        if node.obj_mask_img is not None:
-            cv2.imshow("Mask objetos", node.obj_mask_img)
-        if node.debug_img is not None:
-            cv2.imshow("Frame debug", node.debug_img)
-
-        key = cv2.waitKey(1) & 0xFF
-        if key == ord('b'):
-            node.selection_mode = "board"
-            rospy.loginfo("Modo selección → TABLERO")
-        elif key == ord('o'):
-            node.selection_mode = "obj"
-            rospy.loginfo("Modo selección → OBJETOS")
-
-        rate.sleep()
-
-    cv2.destroyAllWindows()
+    try:
+        node.spin()
+    finally:
+        node.shutdown()
