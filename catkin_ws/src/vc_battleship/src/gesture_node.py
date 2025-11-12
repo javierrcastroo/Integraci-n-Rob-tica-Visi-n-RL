@@ -71,6 +71,8 @@ class GestureNode:
 
         self.hand_cam_mtx = None
         self.hand_dist = None
+        self.undistort_map1 = None
+        self.undistort_map2 = None
         if USE_UNDISTORT_HAND and os.path.exists(HAND_CAMERA_PARAMS_PATH):
             params = np.load(HAND_CAMERA_PARAMS_PATH)
             self.hand_cam_mtx = params["camera_matrix"]
@@ -91,7 +93,17 @@ class GestureNode:
             return None
 
         if self.hand_cam_mtx is not None:
-            frame = cv2.undistort(frame, self.hand_cam_mtx, self.hand_dist)
+            if self.undistort_map1 is None:
+                h, w = frame.shape[:2]
+                self.undistort_map1, self.undistort_map2 = cv2.initUndistortRectifyMap(
+                    self.hand_cam_mtx,
+                    self.hand_dist,
+                    None,
+                    self.hand_cam_mtx,
+                    (w, h),
+                    cv2.CV_16SC2,
+                )
+            frame = cv2.remap(frame, self.undistort_map1, self.undistort_map2, cv2.INTER_LINEAR)
 
         frame = cv2.flip(frame, 1)
         frame = cv2.resize(frame, (PREVIEW_W, PREVIEW_H))

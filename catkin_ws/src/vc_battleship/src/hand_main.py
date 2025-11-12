@@ -40,6 +40,7 @@ def main():
         raise RuntimeError("No se pudo abrir la cámara 0 (mano)")
 
     HAND_CAM_MTX = HAND_DIST = None
+    undistort_map1 = undistort_map2 = None
     if USE_UNDISTORT_HAND and os.path.exists(HAND_CAMERA_PARAMS_PATH):
         data = np.load(HAND_CAMERA_PARAMS_PATH)
         HAND_CAM_MTX = data["camera_matrix"]
@@ -69,7 +70,17 @@ def main():
 
         # undistort
         if HAND_CAM_MTX is not None:
-            frame = cv2.undistort(frame, HAND_CAM_MTX, HAND_DIST)
+            if undistort_map1 is None:
+                h, w = frame.shape[:2]
+                undistort_map1, undistort_map2 = cv2.initUndistortRectifyMap(
+                    HAND_CAM_MTX,
+                    HAND_DIST,
+                    None,
+                    HAND_CAM_MTX,
+                    (w, h),
+                    cv2.CV_16SC2,
+                )
+            frame = cv2.remap(frame, undistort_map1, undistort_map2, cv2.INTER_LINEAR)
 
         # espejo + resize
         frame = cv2.flip(frame, 1)
