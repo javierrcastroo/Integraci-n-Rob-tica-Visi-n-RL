@@ -30,8 +30,10 @@ def majority_vote(labels):
     return counts.most_common(1)[0][0]
 
 
-def most_frequent_valid_label(labels, invalid_labels):
-    filtered = [lbl for lbl in labels if lbl not in invalid_labels]
+def majority_label_with_exclusions(labels, extra_invalid=()):
+    invalid = {None, "????"}
+    invalid.update(extra_invalid)
+    filtered = [lbl for lbl in labels if lbl not in invalid]
     if not filtered:
         return None, 0
     counts = Counter(filtered)
@@ -142,43 +144,63 @@ class GestureNode:
         ):
             self.last_auto_saved_label = None
 
-        if stable_label == self.ARM_GESTURE and not self.sequence_armed:
-            self.sequence_armed = True
-            self.acciones.clear()
-            self.last_auto_saved_label = None
-            self.stable_history.clear()
-            rospy.loginfo("[GESTURE] Secuencia armada tras gesto '%s'.", self.ARM_GESTURE)
+        if len(self.stable_history) == self.stable_history.maxlen:
+            candidate_label, count = majority_label_with_exclusions(self.stable_history)
 
-        if stable_label == self.SAVE_GESTURE and self.sequence_armed:
-            if self.acciones:
-                payload = String()
-                payload.data = str(self.acciones)
-                self.pub_sequence.publish(payload)
-                rospy.loginfo(
-                    "[GESTURE] Secuencia enviada tras gesto '%s': %s",
-                    self.SAVE_GESTURE,
-                    self.acciones,
-                )
-            else:
-                rospy.logwarn("[GESTURE] Gesto '%s' pero la lista está vacía.", self.SAVE_GESTURE)
-            self.acciones.clear()
-            self.sequence_armed = False
-            self.stable_history.clear()
-            self.last_auto_saved_label = None
-            rospy.loginfo(
-                "[GESTURE] Secuencia reiniciada, realiza '%s' para armar de nuevo.",
-                self.ARM_GESTURE,
-            )
-
-        if self.sequence_armed and len(self.stable_history) == self.stable_history.maxlen:
-            label_to_add, count = most_frequent_valid_label(
-                self.stable_history, (None, "????", self.ARM_GESTURE, self.SAVE_GESTURE)
-            )
-            if label_to_add is None:
+            if candidate_label is None:
                 self.stable_history.clear()
                 return
 
-            if label_to_add == self.last_auto_saved_label:
+            if candidate_label == self.ARM_GESTURE:
+                if not self.sequence_armed:
+                    self.sequence_armed = True
+                    self.acciones.clear()
+                    self.last_auto_saved_label = None
+                    rospy.loginfo(
+                        "[GESTURE] Secuencia armada tras gesto '%s'.",
+                        self.ARM_GESTURE,
+                    )
+                self.stable_history.clear()
+                return
+
+            if candidate_label == self.SAVE_GESTURE:
+                if self.sequence_armed:
+                    if self.acciones:
+                        payload = String()
+                        payload.data = str(self.acciones)
+                        self.pub_sequence.publish(payload)
+                        rospy.loginfo(
+                            "[GESTURE] Secuencia enviada tras gesto '%s': %s",
+                            self.SAVE_GESTURE,
+                            self.acciones,
+                        )
+                    else:
+                        rospy.logwarn(
+                            "[GESTURE] Gesto '%s' pero la lista está vacía.",
+                            self.SAVE_GESTURE,
+                        )
+                    self.acciones.clear()
+                    self.sequence_armed = False
+                    self.last_auto_saved_label = None
+                    rospy.loginfo(
+                        "[GESTURE] Secuencia reiniciada, realiza '%s' para armar de nuevo.",
+                        self.ARM_GESTURE,
+                    )
+                else:
+                    rospy.logwarn("[GESTURE] Ignorando '%s' sin armar la secuencia.", self.SAVE_GESTURE)
+                self.stable_history.clear()
+                return
+
+            if not self.sequence_armed:
+                rospy.logwarn(
+                    "[GESTURE] Ignorando gesto '%s' sin armar la secuencia con '%s'.",
+                    candidate_label,
+                    self.ARM_GESTURE,
+                )
+                self.stable_history.clear()
+                return
+
+            if candidate_label == self.last_auto_saved_label:
                 self.stable_history.clear()
                 return
 
@@ -188,6 +210,13 @@ class GestureNode:
                     self.acciones,
                     self.SAVE_GESTURE,
                 )
+                self.stable_history.clear()
+                return
+
+            label_to_add, count = majority_label_with_exclusions(
+                self.stable_history, (self.ARM_GESTURE, self.SAVE_GESTURE)
+            )
+            if label_to_add is None:
                 self.stable_history.clear()
                 return
 

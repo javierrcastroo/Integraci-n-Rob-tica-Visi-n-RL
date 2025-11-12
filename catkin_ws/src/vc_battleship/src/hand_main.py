@@ -26,8 +26,10 @@ def majority_vote(labels):
     return counts.most_common(1)[0][0]
 
 
-def most_frequent_valid_label(labels, invalid_labels):
-    filtered = [lbl for lbl in labels if lbl not in invalid_labels]
+def majority_label_with_exclusions(labels, extra_invalid=()):
+    invalid = {None, "????"}
+    invalid.update(extra_invalid)
+    filtered = [lbl for lbl in labels if lbl not in invalid]
     if not filtered:
         return None, 0
     counts = Counter(filtered)
@@ -119,41 +121,51 @@ def main():
         ):
             last_auto_saved_label = None
 
-        if stable_label == ARM_GESTURE and not sequence_armed:
-            sequence_armed = True
-            acciones.clear()
-            last_auto_saved_label = None
-            stable_history.clear()
-            print("[INFO] Secuencia armada tras gesto 'demonio'.")
+        if stable_history and len(stable_history) == stable_history.maxlen:
+            candidate_label, count = majority_label_with_exclusions(stable_history)
 
-        if stable_label == SAVE_GESTURE and sequence_armed:
-            if acciones:
-                save_sequence_json(acciones)
-                print("[INFO] Secuencia guardada tras gesto 'cool':", acciones)
-            acciones.clear()
-            sequence_armed = False
-            stable_history.clear()
-            last_auto_saved_label = None
-            print("[INFO] Secuencia reiniciada, realiza 'demonio' para armar de nuevo.")
-
-        if sequence_armed:
-            if stable_history and len(stable_history) == stable_history.maxlen:
-                label_to_add, count = most_frequent_valid_label(
-                    stable_history, (None, "????", ARM_GESTURE, SAVE_GESTURE)
-                )
-                if label_to_add is None:
-                    stable_history.clear()
-                elif label_to_add == last_auto_saved_label:
-                    stable_history.clear()
-                elif len(acciones) < 2:
-                    acciones = ui.append_action(acciones, label_to_add)
-                    last_auto_saved_label = label_to_add
+            if candidate_label is None:
+                stable_history.clear()
+            elif candidate_label == ARM_GESTURE:
+                if not sequence_armed:
+                    sequence_armed = True
+                    acciones.clear()
+                    last_auto_saved_label = None
+                    print("[INFO] Secuencia armada tras gesto 'demonio'.")
+                stable_history.clear()
+            elif candidate_label == SAVE_GESTURE:
+                if sequence_armed:
+                    if acciones:
+                        save_sequence_json(acciones)
+                        print("[INFO] Secuencia guardada tras gesto 'cool':", acciones)
+                    else:
+                        print("[WARN] Gesto 'cool' recibido pero la lista está vacía.")
+                    acciones.clear()
+                    sequence_armed = False
+                    last_auto_saved_label = None
                     print(
-                        f"[INFO] Gesto mayoritario en {stable_history.maxlen} frames: {label_to_add} (cuenta={count})."
+                        "[INFO] Secuencia reiniciada, realiza 'demonio' para armar de nuevo."
+                    )
+                else:
+                    print("[WARN] Ignorando 'cool' sin haber armado la secuencia.")
+                stable_history.clear()
+            else:
+                if not sequence_armed:
+                    print(
+                        f"[WARN] Ignorando gesto '{candidate_label}' sin armar la secuencia con 'demonio'."
                     )
                     stable_history.clear()
-                else:
+                elif candidate_label == last_auto_saved_label:
+                    stable_history.clear()
+                elif len(acciones) >= 2:
                     print("[WARN] Lista llena. Usa gesto 'cool' para guardar y reiniciar.")
+                    stable_history.clear()
+                else:
+                    acciones = ui.append_action(acciones, candidate_label)
+                    last_auto_saved_label = candidate_label
+                    print(
+                        f"[INFO] Gesto mayoritario en {stable_history.maxlen} frames: {candidate_label} (cuenta={count})."
+                    )
                     stable_history.clear()
 
         # HUD
