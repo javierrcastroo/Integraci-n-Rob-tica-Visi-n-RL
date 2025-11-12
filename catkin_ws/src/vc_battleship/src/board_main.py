@@ -9,6 +9,7 @@ import board_tracker
 import object_tracker
 import board_state
 import board_processing as bp
+import aruco_util
 
 
 def main():
@@ -38,8 +39,8 @@ def main():
         if not ok:
             break
 
-        # detectar el cubo verde (origen global) CADA FRAME
-        _detect_global_origin(frame)
+        # actualizar el origen global usando el marcador ArUco
+        aruco_util.update_global_origin_from_aruco(frame)
 
         # procesar todos los tableros con el origen global actual
         vis, mask_b, mask_o, _ = bp.process_all_boards(
@@ -57,7 +58,7 @@ def main():
             cv2.circle(vis, (int(gx), int(gy)), 10, (0, 255, 0), -1)
             cv2.putText(
                 vis,
-                "ORIGEN (verde)",
+                "ORIGEN (ArUco)",
                 (int(gx) + 10, int(gy) - 10),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.6,
@@ -81,40 +82,6 @@ def main():
 
     cap.release()
     cv2.destroyAllWindows()
-
-
-def _detect_global_origin(frame):
-    """
-    Busca en TODO el frame el color que se calibró con 'r'
-    y actualiza board_state.GLOBAL_ORIGIN cada frame.
-    Si un frame no lo ve, aguanta unos cuantos.
-    """
-    if not hasattr(object_tracker, "current_origin_lower"):
-        return
-
-    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-
-    # cuadrilátero que cubre toda la imagen
-    h, w = frame.shape[:2]
-    full_quad = np.array([[0, 0], [w, 0], [w, h], [0, h]], dtype=np.float32)
-
-    pts, _ = object_tracker.detect_colored_points_in_board(
-        hsv,
-        full_quad,
-        object_tracker.current_origin_lower,
-        object_tracker.current_origin_upper,
-        max_objs=1,
-        min_area=40,
-    )
-
-    if pts:
-        board_state.GLOBAL_ORIGIN = pts[0]
-        board_state.GLOBAL_ORIGIN_MISS = 0
-    else:
-        # si no lo ve este frame, aguanta unos cuantos
-        board_state.GLOBAL_ORIGIN_MISS += 1
-        if board_state.GLOBAL_ORIGIN_MISS > board_state.GLOBAL_ORIGIN_MAX_MISS:
-            board_state.GLOBAL_ORIGIN = None
 
 
 def handle_keys(key, frame):
@@ -142,22 +109,14 @@ def handle_keys(key, frame):
         else:
             print("[WARN] dibuja ROI sobre la ficha")
 
-    # 🔴 ahora 'r' = calibrar el color del CUBO VERDE (origen global)
+    # reiniciar manualmente el origen global detectado por ArUco
     elif key == ord("r"):
-        if board_ui.board_roi_defined:
-            x0, x1 = sorted([board_ui.bx_start, board_ui.bx_end])
-            y0, y1 = sorted([board_ui.by_start, board_ui.by_end])
-            roi_hsv = cv2.cvtColor(frame[y0:y1, x0:x1], cv2.COLOR_BGR2HSV)
-            lo, up = object_tracker.calibrate_origin_color_from_roi(roi_hsv)
-            object_tracker.current_origin_lower = lo
-            object_tracker.current_origin_upper = up
-            # forzamos a que la próxima iteración vuelva a buscarlo
-            board_state.GLOBAL_ORIGIN = None
-            board_state.GLOBAL_ORIGIN_MISS = 0
-            print("[INFO] calibrado ORIGEN GLOBAL (cubo verde):", lo, up)
-        else:
-            print("[WARN] dibuja ROI sobre el cubo verde para el origen")
+        board_state.GLOBAL_ORIGIN = None
+        board_state.GLOBAL_ORIGIN_MISS = board_state.GLOBAL_ORIGIN_MAX_MISS + 1
+        print("[INFO] Origen global reiniciado. Esperando ArUco ID "
+              f"{aruco_util.ARUCO_ORIGIN_ID}...")
 
 
 if __name__ == "__main__":
     main()
+
