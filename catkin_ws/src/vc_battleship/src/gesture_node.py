@@ -26,7 +26,8 @@ import ui
 def majority_vote(labels):
     if not labels:
         return None
-    return max(set(labels), key=labels.count)
+    counts = Counter(labels)
+    return counts.most_common(1)[0][0]
 
 
 def most_frequent_valid_label(labels, invalid_labels):
