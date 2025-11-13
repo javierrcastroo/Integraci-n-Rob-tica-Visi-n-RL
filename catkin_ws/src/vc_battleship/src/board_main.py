@@ -64,7 +64,7 @@ def main():
         aruco_util.update_global_origin_from_aruco(frame_proc)
 
         # procesar todos los tableros con el origen global actual
-        vis, mask_b, mask_o, _ = bp.process_all_boards(
+        vis, mask_b, mask_o, _, ammo_data = bp.process_all_boards(
             frame_proc,
             boards_state_list,
             cam_mtx=None,
@@ -94,6 +94,9 @@ def main():
         cv2.imshow("Mascara tablero", mask_b)
         if mask_o is not None:
             cv2.imshow("Mascara objetos", mask_o)
+        ammo_mask = ammo_data.get("mask") if ammo_data else None
+        if ammo_mask is not None:
+            cv2.imshow("Mascara municion", ammo_mask)
 
         key = cv2.waitKey(1) & 0xFF
         if key in (27, ord("q")):
@@ -151,6 +154,17 @@ def handle_keys(key, frame):
             print("[INFO] calibrado BARCO x2:", lo, up)
         else:
             print("[WARN] dibuja ROI del barco tamaño 2")
+
+    # calibrar munición
+    elif key == ord("m"):
+        if board_ui.board_roi_defined:
+            x0, x1 = sorted([board_ui.bx_start, board_ui.bx_end])
+            y0, y1 = sorted([board_ui.by_start, board_ui.by_end])
+            roi_hsv = cv2.cvtColor(frame[y0:y1, x0:x1], cv2.COLOR_BGR2HSV)
+            lo, up = object_tracker.calibrate_ammo_color_from_roi(roi_hsv)
+            print("[INFO] calibrado MUNICIÓN:", lo, up)
+        else:
+            print("[WARN] dibuja ROI sobre la munición antes de pulsar 'm'")
 
     # reiniciar manualmente el origen global detectado por ArUco
     elif key == ord("r"):

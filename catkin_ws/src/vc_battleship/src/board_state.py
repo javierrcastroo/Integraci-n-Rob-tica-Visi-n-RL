@@ -13,6 +13,7 @@ def init_board_state(name):
         "miss": 0,
         "tracked": {},
         "next_id": 1,
+        "cm_per_pix": None,
     }
 
 

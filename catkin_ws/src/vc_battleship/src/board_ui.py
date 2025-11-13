@@ -81,11 +81,13 @@ def draw_board_hud(img):
                 cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255,255,255), 1, cv2.LINE_AA)
     cv2.putText(img, "2: calibrar barco tamaño 2", (10, y0 + 4*dy),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255,255,255), 1, cv2.LINE_AA)
-    cv2.putText(img, "r: reiniciar origen ArUco", (10, y0 + 5*dy),
+    cv2.putText(img, "m: calibrar munición (ROI munición)", (10, y0 + 5*dy),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255,255,255), 1, cv2.LINE_AA)
-    cv2.putText(img, "ArUco 5x5_100 ID 1: origen automático", (10, y0 + 6*dy),
+    cv2.putText(img, "r: reiniciar origen ArUco", (10, y0 + 6*dy),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255,255,255), 1, cv2.LINE_AA)
+    cv2.putText(img, "ArUco 5x5_100 ID 1: origen automático", (10, y0 + 7*dy),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.45, (200,255,200), 1, cv2.LINE_AA)
-    cv2.putText(img, "Click izq: definir ROI", (10, y0 + 7*dy),
+    cv2.putText(img, "Click izq: definir ROI", (10, y0 + 8*dy),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.45, (200,255,200), 1, cv2.LINE_AA)
-    cv2.putText(img, "Click dcho: punto de medida", (10, y0 + 8*dy),
+    cv2.putText(img, "Click dcho: punto de medida", (10, y0 + 9*dy),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.45, (200,255,200), 1, cv2.LINE_AA)

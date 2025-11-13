@@ -12,6 +12,8 @@ class GameLogic:
     def __init__(self):
         self.reset_board()
         self.current_signature = None
+        self.ammo_list = []
+        self.selected_ammo = None
 
     # ------------------------------------------------------------------
     # CONFIGURACIÓN DEL TABLERO
@@ -28,8 +30,20 @@ class GameLogic:
         self.board_ready = False
         self.validation_msg = "Tablero no configurado"
 
-    def update_board_from_detections(self, objects_info):
-        """Recibe la lista JSON que publica board_node."""
+    def update_board_from_detections(self, payload):
+        """Recibe la estructura JSON que publica board_node."""
+
+        ammo_data = None
+        if isinstance(payload, dict):
+            objects_info = payload.get("objects", [])
+            ammo_data = payload.get("ammo")
+        else:
+            objects_info = payload
+
+        self._update_ammo_state(ammo_data)
+
+        if objects_info is None:
+            objects_info = []
 
         cells_by_type = defaultdict(set)
         coords_by_cell = {}
@@ -93,6 +107,49 @@ class GameLogic:
         self.validation_msg = message
         status.update({"valid": True, "message": message, "changed": True})
         return status
+
+    def _update_ammo_state(self, ammo_data):
+        if not ammo_data:
+            self.ammo_list = []
+            self.selected_ammo = None
+            return
+
+        cleaned = []
+        for entry in ammo_data.get("list") or []:
+            try:
+                ammo_id = int(entry.get("id"))
+            except (TypeError, ValueError):
+                continue
+            px = entry.get("px")
+            py = entry.get("py")
+            dx_cm = entry.get("dx_cm")
+            dy_cm = entry.get("dy_cm")
+            cleaned.append(
+                {
+                    "id": ammo_id,
+                    "px": int(px) if px is not None else None,
+                    "py": int(py) if py is not None else None,
+                    "dx_cm": float(dx_cm) if dx_cm is not None else None,
+                    "dy_cm": float(dy_cm) if dy_cm is not None else None,
+                }
+            )
+
+        self.ammo_list = cleaned
+
+        selected = None
+        raw_selected = ammo_data.get("selected")
+        if raw_selected:
+            try:
+                sel_id = int(raw_selected.get("id"))
+            except (TypeError, ValueError):
+                sel_id = None
+            if sel_id is not None:
+                for item in self.ammo_list:
+                    if item["id"] == sel_id:
+                        selected = dict(item)
+                        break
+
+        self.selected_ammo = selected
 
     def _build_board(self, ship_defs, coords_by_cell):
         self.reset_board()
@@ -309,3 +366,9 @@ class GameLogic:
 
     def get_cell_coordinates(self, row, col):
         return self.cell_to_coords.get((row, col))
+
+    def get_ammo_state(self):
+        return {"list": list(self.ammo_list), "selected": self.selected_ammo}
+
+    def get_selected_ammo(self):
+        return self.selected_ammo

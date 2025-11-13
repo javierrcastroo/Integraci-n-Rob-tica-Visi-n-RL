@@ -36,7 +36,7 @@ class BoardNode(object):
         self.bridge = CvBridge()
         self.latest_frame = None
         self.last_frame_stamp = None
-        self.last_objects_info = []
+        self.last_payload = {"objects": [], "ammo": {"list": [], "selected": None}}
         self.image_sub = rospy.Subscriber(
             self.image_topic, Image, self.image_callback, queue_size=1
         )
@@ -101,7 +101,7 @@ class BoardNode(object):
                     5.0, f"[BOARD] Error actualizando origen ArUco: {exc}"
                 )
 
-            vis, mask_board, obj_mask, objects_info = bp.process_all_boards(
+            vis, mask_board, obj_mask, objects_info, ammo_data = bp.process_all_boards(
                 frame_proc,
                 self.boards_state,
                 cam_mtx=None,
@@ -110,7 +110,7 @@ class BoardNode(object):
                 warp_size=WARP_SIZE,
             )
 
-            self.publish_objects(objects_info)
+            self.publish_objects(objects_info, ammo_data)
             self.draw_origin_indicator(vis)
 
             cv2.imshow("Tablero ROS", vis)
@@ -118,6 +118,9 @@ class BoardNode(object):
                 cv2.imshow("Mascara tablero", mask_board)
             if obj_mask is not None:
                 cv2.imshow("Mascara objetos", obj_mask)
+            ammo_mask = ammo_data.get("mask") if ammo_data else None
+            if ammo_mask is not None:
+                cv2.imshow("Mascara municion", ammo_mask)
 
             key = cv2.waitKey(1) & 0xFF
             if key in (27, ord("q")):
@@ -132,19 +135,25 @@ class BoardNode(object):
     # ------------------------------------------------------------------
     # Publicación hacia game_logic
     # ------------------------------------------------------------------
-    def publish_objects(self, objects_info):
+    def publish_objects(self, objects_info, ammo_data):
         if objects_info is None:
-            return
-        self.last_objects_info = objects_info
+            objects_info = []
+        if ammo_data is None:
+            ammo_data = {"list": [], "selected": None}
+        payload = {"objects": objects_info, "ammo": {
+            "list": ammo_data.get("list", []),
+            "selected": ammo_data.get("selected"),
+        }}
+        self.last_payload = payload
         msg = String()
-        msg.data = json.dumps(objects_info)
+        msg.data = json.dumps(payload)
         self.pub_objects.publish(msg)
 
     def handle_capture_request(self, _req):
-        if self.latest_frame is None or not self.last_objects_info:
+        if self.latest_frame is None:
             return TriggerResponse(success=False, message="[]")
         try:
-            payload = json.dumps(self.last_objects_info)
+            payload = json.dumps(self.last_payload)
         except Exception as exc:
             rospy.logwarn(f"[BOARD] Error serializando objetos: {exc}")
             return TriggerResponse(success=False, message=str(exc))
@@ -195,6 +204,16 @@ class BoardNode(object):
                 rospy.loginfo(f"[BOARD] Calibrado BARCO x2: {lo} {up}")
             else:
                 rospy.logwarn("[BOARD] Dibuja un ROI del barco tamaño 2")
+
+        elif key == ord("m"):
+            if board_ui.board_roi_defined:
+                x0, x1 = sorted([board_ui.bx_start, board_ui.bx_end])
+                y0, y1 = sorted([board_ui.by_start, board_ui.by_end])
+                roi_hsv = cv2.cvtColor(frame[y0:y1, x0:x1], cv2.COLOR_BGR2HSV)
+                lo, up = object_tracker.calibrate_ammo_color_from_roi(roi_hsv)
+                rospy.loginfo(f"[BOARD] Calibrada MUNICIÓN: {lo} {up}")
+            else:
+                rospy.logwarn("[BOARD] Dibuja un ROI sobre la munición antes de pulsar 'm'")
 
         elif key == ord("r"):
             board_state.GLOBAL_ORIGIN = None

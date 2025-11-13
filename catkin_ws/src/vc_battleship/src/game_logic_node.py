@@ -20,6 +20,7 @@ class GameLogicNode(object):
         self.pub_target = rospy.Publisher('/game/target_xy', String, queue_size=10)
         self.pub_board_status = rospy.Publisher('/game/board_status', String, queue_size=10)
         self.pub_ships = rospy.Publisher('/game/ships_xy', String, queue_size=10)
+        self.pub_ammo = rospy.Publisher('/game/ammo_pick', String, queue_size=10)
 
         # suscriptor a los gestos
         rospy.Subscriber('/gesture/attack_list', String, self.cb_attack_list)
@@ -28,6 +29,7 @@ class GameLogicNode(object):
         self.board_service = None
         self.last_board_status = None
         self.last_ships_payload = None
+        self.last_ammo_payload = None
 
         self._connect_board_service()
 
@@ -88,6 +90,7 @@ class GameLogicNode(object):
         # actualizar estado del tablero tras procesar los ataques
         self.refresh_board_state(reason="post_ataque")
         self._publish_ships(force=True)
+        self._publish_ammo(force=True)
 
     def refresh_board_state(self, reason="manual"):
         if self.board_service is None:
@@ -106,16 +109,12 @@ class GameLogicNode(object):
             return False
 
         try:
-            objects = json.loads(resp.message)
+            payload = json.loads(resp.message)
         except Exception as exc:
             rospy.logwarn(f"[GAME] Respuesta inválida del tablero: {exc}")
             return False
 
-        if not isinstance(objects, list):
-            rospy.logwarn("[GAME] El estado del tablero debería ser una lista")
-            return False
-
-        status = self.game.update_board_from_detections(objects)
+        status = self.game.update_board_from_detections(payload)
 
         if status != self.last_board_status:
             status_msg = String()
@@ -125,10 +124,12 @@ class GameLogicNode(object):
 
         if status.get("valid"):
             self._publish_ships()
+            self._publish_ammo()
             if status.get("changed"):
                 rospy.loginfo(f"[GAME] Tablero actualizado tras {reason}")
         else:
             rospy.logwarn_throttle(2.0, f"[GAME] Tablero inválido: {status.get('message')}")
+            self._publish_ammo()
 
         return status.get("valid", False)
 
@@ -154,6 +155,16 @@ class GameLogicNode(object):
         ships_msg.data = payload
         self.pub_ships.publish(ships_msg)
         self.last_ships_payload = payload
+
+    def _publish_ammo(self, force=False):
+        ammo_state = self.game.get_ammo_state()
+        payload = json.dumps(ammo_state, ensure_ascii=False)
+        if not force and payload == self.last_ammo_payload:
+            return
+        msg = String()
+        msg.data = payload
+        self.pub_ammo.publish(msg)
+        self.last_ammo_payload = payload
 
 def main():
     node = GameLogicNode()
