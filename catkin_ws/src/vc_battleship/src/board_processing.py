@@ -10,16 +10,6 @@ from board_geometry import collect_objects_info, compute_global_scale, draw_quad
 from tracking_utils import TRACK_STABLE_HITS, update_tracks
 
 
-TRACK_STABLE_HITS = 5
-
-AMMO_STATE = {
-    "tracked": {},
-    "next_id": 1,
-    "selected_id": None,
-    "mask": None,
-}
-
-
 def process_all_boards(frame, boards_state_list, cam_mtx=None, dist=None, max_boards=2, warp_size=500):
     """
     Detecta varios tableros, los asigna a los slots existentes (T1, T2),
@@ -164,14 +154,6 @@ def process_single_board(vis_img, frame_bgr, quad, slot, warp_size=500):
     cv2.imshow(f"{slot['name']} aplanado", warp_img)
 
     return obj_mask, objects_info
-
-        if info["id"] == selected_id:
-            selected_info = info
-
-    result["list"] = stable_infos
-    result["selected"] = selected_info
-
-    return result
 
 
 def fallback_or_decay(slot, vis_img):
