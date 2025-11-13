@@ -1,0 +1,4 @@
+<launch>
+    <!-- Solo el nodo de lógica de juego -->
+    <node pkg="vc_battleship" type="game_logic_node.py" name="game_logic_node" output="screen" />
+</launch>
