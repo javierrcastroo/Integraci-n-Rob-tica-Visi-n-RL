@@ -13,10 +13,11 @@ def init_board_state(name):
         "miss": 0,
         "tracked": {},
         "next_id": 1,
+        "cm_per_pix": None,
     }
 
 
-# origen global = el cubo verde que el usuario calibra con 'r'
+# origen global = centro del marcador ArUco detectado en la escena
 # lo vamos actualizando cada frame
 GLOBAL_ORIGIN = None       # (x, y) en píxeles
 GLOBAL_ORIGIN_MISS = 0     # para aguantar unos frames si desaparece
