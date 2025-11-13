@@ -5,11 +5,7 @@ import numpy as np
 
 from board_config import USE_UNDISTORT_BOARD, BOARD_CAMERA_PARAMS_PATH, WARP_SIZE
 import board_ui
-import board_tracker
-import object_tracker
-import board_state
-import board_processing as bp
-import aruco_util
+from board_runtime import BoardRuntime
 
 
 def main():
@@ -28,11 +24,7 @@ def main():
     map1 = map2 = None
     new_cam_mtx = None
 
-    # dos tableros
-    boards_state_list = [
-        board_state.init_board_state("T1"),
-        board_state.init_board_state("T2"),
-    ]
+    runtime = BoardRuntime(max_boards=2, warp_size=WARP_SIZE)
 
     cv2.namedWindow("Tablero")
     cv2.setMouseCallback("Tablero", board_ui.board_mouse_callback)
@@ -60,32 +52,9 @@ def main():
         # modo espejo para que los movimientos coincidan visualmente
         frame_proc = cv2.flip(frame_proc, 1)
 
-        # actualizar el origen global usando el marcador ArUco
-        aruco_util.update_global_origin_from_aruco(frame_proc)
+        vis, mask_b, mask_o, _, ammo_data = runtime.process_frame(frame_proc)
 
-        # procesar todos los tableros con el origen global actual
-        vis, mask_b, mask_o, _, ammo_data = bp.process_all_boards(
-            frame_proc,
-            boards_state_list,
-            cam_mtx=None,
-            dist=None,
-            max_boards=2,
-            warp_size=WARP_SIZE,
-        )
-
-        # dibujar el origen global si lo tenemos
-        if board_state.GLOBAL_ORIGIN is not None:
-            gx, gy = board_state.GLOBAL_ORIGIN
-            cv2.circle(vis, (int(gx), int(gy)), 10, (0, 255, 0), -1)
-            cv2.putText(
-                vis,
-                "ORIGEN (ArUco)",
-                (int(gx) + 10, int(gy) - 10),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.6,
-                (0, 255, 0),
-                2,
-            )
+        BoardRuntime.draw_origin_indicator(vis)
 
         board_ui.draw_board_hud(vis)
 
@@ -102,21 +71,20 @@ def main():
         if key in (27, ord("q")):
             break
 
-        handle_keys(key, frame_proc)
+        handle_keys(key, frame_proc, runtime)
 
     cap.release()
     cv2.destroyAllWindows()
 
 
-def handle_keys(key, frame):
+def handle_keys(key, frame, runtime: BoardRuntime):
     # calibrar color del tablero
     if key == ord("b"):
         if board_ui.board_roi_defined:
             x0, x1 = sorted([board_ui.bx_start, board_ui.bx_end])
             y0, y1 = sorted([board_ui.by_start, board_ui.by_end])
             roi_hsv = cv2.cvtColor(frame[y0:y1, x0:x1], cv2.COLOR_BGR2HSV)
-            lo, up = board_tracker.calibrate_board_color_from_roi(roi_hsv)
-            board_tracker.current_lower, board_tracker.current_upper = lo, up
+            lo, up = runtime.calibrate_board_color(roi_hsv)
             print("[INFO] calibrado TABLERO:", lo, up)
         else:
             print("[WARN] dibuja ROI en 'Tablero' primero")
@@ -127,8 +95,7 @@ def handle_keys(key, frame):
             x0, x1 = sorted([board_ui.bx_start, board_ui.bx_end])
             y0, y1 = sorted([board_ui.by_start, board_ui.by_end])
             roi_hsv = cv2.cvtColor(frame[y0:y1, x0:x1], cv2.COLOR_BGR2HSV)
-            lo, up = object_tracker.calibrate_object_color_from_roi(roi_hsv)
-            object_tracker.current_obj_lower, object_tracker.current_obj_upper = lo, up
+            lo, up = runtime.calibrate_object_color(roi_hsv)
             print("[INFO] calibrado OBJETO:", lo, up)
         else:
             print("[WARN] dibuja ROI sobre la ficha")
@@ -139,7 +106,7 @@ def handle_keys(key, frame):
             x0, x1 = sorted([board_ui.bx_start, board_ui.bx_end])
             y0, y1 = sorted([board_ui.by_start, board_ui.by_end])
             roi_hsv = cv2.cvtColor(frame[y0:y1, x0:x1], cv2.COLOR_BGR2HSV)
-            lo, up = object_tracker.calibrate_ship_color_from_roi("ship1", roi_hsv)
+            lo, up = runtime.calibrate_ship_color("ship1", roi_hsv)
             print("[INFO] calibrado BARCO x1:", lo, up)
         else:
             print("[WARN] dibuja ROI del barco tamaño 1")
@@ -150,7 +117,7 @@ def handle_keys(key, frame):
             x0, x1 = sorted([board_ui.bx_start, board_ui.bx_end])
             y0, y1 = sorted([board_ui.by_start, board_ui.by_end])
             roi_hsv = cv2.cvtColor(frame[y0:y1, x0:x1], cv2.COLOR_BGR2HSV)
-            lo, up = object_tracker.calibrate_ship_color_from_roi("ship2", roi_hsv)
+            lo, up = runtime.calibrate_ship_color("ship2", roi_hsv)
             print("[INFO] calibrado BARCO x2:", lo, up)
         else:
             print("[WARN] dibuja ROI del barco tamaño 2")
@@ -161,17 +128,17 @@ def handle_keys(key, frame):
             x0, x1 = sorted([board_ui.bx_start, board_ui.bx_end])
             y0, y1 = sorted([board_ui.by_start, board_ui.by_end])
             roi_hsv = cv2.cvtColor(frame[y0:y1, x0:x1], cv2.COLOR_BGR2HSV)
-            lo, up = object_tracker.calibrate_ammo_color_from_roi(roi_hsv)
+            lo, up = runtime.calibrate_ammo_color(roi_hsv)
             print("[INFO] calibrado MUNICIÓN:", lo, up)
         else:
             print("[WARN] dibuja ROI sobre la munición antes de pulsar 'm'")
 
     # reiniciar manualmente el origen global detectado por ArUco
     elif key == ord("r"):
-        board_state.GLOBAL_ORIGIN = None
-        board_state.GLOBAL_ORIGIN_MISS = board_state.GLOBAL_ORIGIN_MAX_MISS + 1
-        print("[INFO] Origen global reiniciado. Esperando ArUco ID "
-              f"{aruco_util.ARUCO_ORIGIN_ID}...")
+        runtime.reset_origin()
+        print(
+            f"[INFO] Origen global reiniciado. Esperando ArUco ID {runtime.aruco_id}..."
+        )
 
 
 if __name__ == "__main__":

@@ -12,11 +12,8 @@ from std_srvs.srv import Trigger, TriggerResponse
 
 from board_config import BOARD_CAMERA_PARAMS_PATH, USE_UNDISTORT_BOARD, WARP_SIZE
 import aruco_util
-import board_processing as bp
-import board_state
-import board_tracker
 import board_ui
-import object_tracker
+from board_runtime import BoardRuntime
 
 
 class BoardNode(object):
@@ -57,10 +54,7 @@ class BoardNode(object):
         else:
             rospy.loginfo("[BOARD] Sin parámetros de calibración o undistort desactivado")
 
-        self.boards_state = [
-            board_state.init_board_state("T1"),
-            board_state.init_board_state("T2"),
-        ]
+        self.runtime = BoardRuntime(max_boards=2, warp_size=WARP_SIZE, aruco_id=self.aruco_id)
 
         cv2.namedWindow("Tablero ROS")
         cv2.setMouseCallback("Tablero ROS", board_ui.board_mouse_callback)
@@ -91,27 +85,19 @@ class BoardNode(object):
             frame_proc = self.apply_undistort(frame)
             frame_proc = cv2.flip(frame_proc, 1)
 
-            # actualizar el origen global mediante ArUco
             try:
-                aruco_util.update_global_origin_from_aruco(
-                    frame_proc, aruco_id=self.aruco_id
+                vis, mask_board, obj_mask, objects_info, ammo_data = self.runtime.process_frame(
+                    frame_proc
                 )
             except Exception as exc:
                 rospy.logwarn_throttle(
-                    5.0, f"[BOARD] Error actualizando origen ArUco: {exc}"
+                    5.0, f"[BOARD] Error procesando el tablero: {exc}"
                 )
-
-            vis, mask_board, obj_mask, objects_info, ammo_data = bp.process_all_boards(
-                frame_proc,
-                self.boards_state,
-                cam_mtx=None,
-                dist=None,
-                max_boards=2,
-                warp_size=WARP_SIZE,
-            )
+                rate.sleep()
+                continue
 
             self.publish_objects(objects_info, ammo_data)
-            self.draw_origin_indicator(vis)
+            BoardRuntime.draw_origin_indicator(vis)
 
             cv2.imshow("Tablero ROS", vis)
             if mask_board is not None:
@@ -168,8 +154,7 @@ class BoardNode(object):
                 x0, x1 = sorted([board_ui.bx_start, board_ui.bx_end])
                 y0, y1 = sorted([board_ui.by_start, board_ui.by_end])
                 roi_hsv = cv2.cvtColor(frame[y0:y1, x0:x1], cv2.COLOR_BGR2HSV)
-                lo, up = board_tracker.calibrate_board_color_from_roi(roi_hsv)
-                board_tracker.current_lower, board_tracker.current_upper = lo, up
+                lo, up = self.runtime.calibrate_board_color(roi_hsv)
                 rospy.loginfo(f"[BOARD] Calibrado TABLERO: {lo} {up}")
             else:
                 rospy.logwarn("[BOARD] Dibuja un ROI del tablero antes de pulsar 'b'")
@@ -179,8 +164,7 @@ class BoardNode(object):
                 x0, x1 = sorted([board_ui.bx_start, board_ui.bx_end])
                 y0, y1 = sorted([board_ui.by_start, board_ui.by_end])
                 roi_hsv = cv2.cvtColor(frame[y0:y1, x0:x1], cv2.COLOR_BGR2HSV)
-                lo, up = object_tracker.calibrate_object_color_from_roi(roi_hsv)
-                object_tracker.current_obj_lower, object_tracker.current_obj_upper = lo, up
+                lo, up = self.runtime.calibrate_object_color(roi_hsv)
                 rospy.loginfo(f"[BOARD] Calibrado OBJETO: {lo} {up}")
             else:
                 rospy.logwarn("[BOARD] Dibuja un ROI sobre la ficha antes de pulsar 'o'")
@@ -190,7 +174,7 @@ class BoardNode(object):
                 x0, x1 = sorted([board_ui.bx_start, board_ui.bx_end])
                 y0, y1 = sorted([board_ui.by_start, board_ui.by_end])
                 roi_hsv = cv2.cvtColor(frame[y0:y1, x0:x1], cv2.COLOR_BGR2HSV)
-                lo, up = object_tracker.calibrate_ship_color_from_roi("ship1", roi_hsv)
+                lo, up = self.runtime.calibrate_ship_color("ship1", roi_hsv)
                 rospy.loginfo(f"[BOARD] Calibrado BARCO x1: {lo} {up}")
             else:
                 rospy.logwarn("[BOARD] Dibuja un ROI del barco tamaño 1")
@@ -200,7 +184,7 @@ class BoardNode(object):
                 x0, x1 = sorted([board_ui.bx_start, board_ui.bx_end])
                 y0, y1 = sorted([board_ui.by_start, board_ui.by_end])
                 roi_hsv = cv2.cvtColor(frame[y0:y1, x0:x1], cv2.COLOR_BGR2HSV)
-                lo, up = object_tracker.calibrate_ship_color_from_roi("ship2", roi_hsv)
+                lo, up = self.runtime.calibrate_ship_color("ship2", roi_hsv)
                 rospy.loginfo(f"[BOARD] Calibrado BARCO x2: {lo} {up}")
             else:
                 rospy.logwarn("[BOARD] Dibuja un ROI del barco tamaño 2")
@@ -210,37 +194,17 @@ class BoardNode(object):
                 x0, x1 = sorted([board_ui.bx_start, board_ui.bx_end])
                 y0, y1 = sorted([board_ui.by_start, board_ui.by_end])
                 roi_hsv = cv2.cvtColor(frame[y0:y1, x0:x1], cv2.COLOR_BGR2HSV)
-                lo, up = object_tracker.calibrate_ammo_color_from_roi(roi_hsv)
+                lo, up = self.runtime.calibrate_ammo_color(roi_hsv)
                 rospy.loginfo(f"[BOARD] Calibrada MUNICIÓN: {lo} {up}")
             else:
                 rospy.logwarn("[BOARD] Dibuja un ROI sobre la munición antes de pulsar 'm'")
 
         elif key == ord("r"):
-            board_state.GLOBAL_ORIGIN = None
-            board_state.GLOBAL_ORIGIN_MISS = board_state.GLOBAL_ORIGIN_MAX_MISS + 1
+            self.runtime.reset_origin()
             rospy.loginfo(
                 f"[BOARD] Origen global reiniciado. Esperando ArUco ID {self.aruco_id}"
             )
 
-    # ------------------------------------------------------------------
-    # Dibujar origen global
-    # ------------------------------------------------------------------
-    def draw_origin_indicator(self, vis_img):
-        if board_state.GLOBAL_ORIGIN is None:
-            return
-        gx, gy = board_state.GLOBAL_ORIGIN
-        cv2.circle(vis_img, (int(gx), int(gy)), 10, (0, 255, 0), -1)
-        cv2.putText(
-            vis_img,
-            "ORIGEN (ArUco)",
-            (int(gx) + 10, int(gy) - 10),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.6,
-            (0, 255, 0),
-            2,
-        )
-
-    # ------------------------------------------------------------------
     # Callback de imagen
     # ------------------------------------------------------------------
     def image_callback(self, msg):

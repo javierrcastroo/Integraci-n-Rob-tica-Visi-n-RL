@@ -1,6 +1,5 @@
 #!/usr/bin/env python
 import os
-from collections import Counter, deque
 
 import cv2
 import numpy as np
@@ -21,31 +20,10 @@ from hand_config import (
 )
 from segmentation import calibrate_from_roi, segment_hand_mask
 import ui
-
-
-def majority_vote(labels):
-    if not labels:
-        return None
-    counts = Counter(labels)
-    return counts.most_common(1)[0][0]
-
-
-def majority_label_with_exclusions(labels, extra_invalid=()):
-    invalid = {None, "????"}
-    invalid.update(extra_invalid)
-    filtered = [lbl for lbl in labels if lbl not in invalid]
-    if not filtered:
-        return None, 0
-    counts = Counter(filtered)
-    return counts.most_common(1)[0]
+from hand_pipeline import GestureConsensus, GestureSequenceManager
 
 
 class GestureNode:
-    ARM_GESTURE = "demonio"
-    SAVE_GESTURE = "cool"
-    CONFIRM_GESTURE = "ok"
-    REJECT_GESTURE = "nook"
-
     def __init__(self):
         rospy.init_node("gesture_node", anonymous=True)
 
@@ -65,11 +43,8 @@ class GestureNode:
         self.lower_skin = None
         self.upper_skin = None
 
-        self.recent_preds = deque(maxlen=7)
-        self.stable_history = deque(maxlen=150)
-        self.sequence_armed = False
-        self.acciones = []
-        self.pending_label = None
+        self.consensus = GestureConsensus()
+        self.sequence_manager = GestureSequenceManager()
 
         self.current_label = "2dedos"
 
@@ -130,129 +105,20 @@ class GestureNode:
             if raw_label is not None and best_dist is not None:
                 per_frame_label = raw_label if best_dist <= CONFIDENCE_THRESHOLD else "????"
 
-        if per_frame_label is not None:
-            self.recent_preds.append(per_frame_label)
+        return vis, mask, skin_only, hsv, per_frame_label, best_dist
 
-        stable_label = majority_vote(list(self.recent_preds))
-        self.stable_history.append(stable_label)
-
-        return vis, mask, skin_only, hsv, stable_label, best_dist
-
-    def handle_state_machine(self, stable_label):
-        if len(self.stable_history) == self.stable_history.maxlen:
-            candidate_label, count = majority_label_with_exclusions(self.stable_history)
-            self.stable_history.clear()
-
-            if candidate_label is None:
-                return
-
-            if candidate_label == self.ARM_GESTURE:
-                if not self.sequence_armed:
-                    self.sequence_armed = True
-                    self.acciones.clear()
-                    self.pending_label = None
-                    rospy.loginfo(
-                        "[GESTURE] Secuencia armada tras gesto '%s'.",
-                        self.ARM_GESTURE,
-                    )
-                return
-
-            if candidate_label == self.SAVE_GESTURE:
-                if self.sequence_armed:
-                    if self.acciones:
-                        payload = String()
-                        payload.data = str(self.acciones)
-                        self.pub_sequence.publish(payload)
-                        rospy.loginfo(
-                            "[GESTURE] Secuencia enviada tras gesto '%s': %s",
-                            self.SAVE_GESTURE,
-                            self.acciones,
-                        )
-                    else:
-                        rospy.logwarn(
-                            "[GESTURE] Gesto '%s' pero la lista está vacía.",
-                            self.SAVE_GESTURE,
-                        )
-                    self.acciones.clear()
-                    self.sequence_armed = False
-                    self.pending_label = None
-                    rospy.loginfo(
-                        "[GESTURE] Secuencia reiniciada, realiza '%s' para armar de nuevo.",
-                        self.ARM_GESTURE,
-                    )
-                else:
-                    rospy.logwarn(
-                        "[GESTURE] Ignorando '%s' sin armar la secuencia.",
-                        self.SAVE_GESTURE,
-                    )
-                return
-
-            if candidate_label == self.CONFIRM_GESTURE:
-                if not self.sequence_armed:
-                    rospy.logwarn(
-                        "[GESTURE] Ignorando '%s' sin armar la secuencia.",
-                        self.CONFIRM_GESTURE,
-                    )
-                elif self.pending_label is None:
-                    rospy.logwarn("[GESTURE] No hay coordenada pendiente que confirmar.")
-                elif len(self.acciones) >= 2:
-                    rospy.logwarn(
-                        "[GESTURE] Lista llena (%s). Usa '%s' para publicar y reiniciar.",
-                        self.acciones,
-                        self.SAVE_GESTURE,
-                    )
-                else:
-                    self.acciones = ui.append_action(self.acciones, self.pending_label)
-                    rospy.loginfo(
-                        "[GESTURE] Coordenada '%s' confirmada tras gesto '%s' (cuenta=%d).",
-                        self.pending_label,
-                        self.CONFIRM_GESTURE,
-                        count,
-                    )
-                    self.pending_label = None
-                return
-
-            if candidate_label == self.REJECT_GESTURE:
-                if self.pending_label is not None:
-                    rospy.loginfo(
-                        "[GESTURE] Coordenada '%s' descartada tras gesto '%s'.",
-                        self.pending_label,
-                        self.REJECT_GESTURE,
-                    )
-                    self.pending_label = None
-                else:
-                    rospy.logwarn("[GESTURE] '%s' recibido pero no hay coordenada pendiente.", self.REJECT_GESTURE)
-                return
-
-            if not self.sequence_armed:
-                rospy.logwarn(
-                    "[GESTURE] Ignorando gesto '%s' sin armar la secuencia con '%s'.",
-                    candidate_label,
-                    self.ARM_GESTURE,
-                )
-                return
-
-            if len(self.acciones) >= 2:
-                rospy.logwarn(
-                    "[GESTURE] Lista llena (%s). Usa '%s' para publicar y reiniciar.",
-                    self.acciones,
-                    self.SAVE_GESTURE,
-                )
-                return
-
-            if self.pending_label == candidate_label:
-                rospy.loginfo(
-                    "[GESTURE] Continúa pendiente la coordenada '%s'.",
-                    candidate_label,
-                )
+    def process_events(self, events):
+        for event in events:
+            if event.kind == "save" and event.actions:
+                payload = String()
+                payload.data = str(event.actions)
+                self.pub_sequence.publish(payload)
+            if event.level == "warn":
+                rospy.logwarn(event.message)
             else:
-                self.pending_label = candidate_label
-                rospy.loginfo(
-                    "[GESTURE] Gesto mayoritario en %d frames: %s (cuenta=%d).",
-                    self.stable_history.maxlen,
-                    candidate_label,
-                    count,
-                )
+                rospy.loginfo(event.message)
+            if event.reset_consensus:
+                self.consensus.clear()
 
     def run(self):
         rate = rospy.Rate(30)
@@ -265,18 +131,21 @@ class GestureNode:
                 rate.sleep()
                 continue
 
-            vis, mask, skin_only, hsv, stable_label, best_dist = result
+            vis, mask, skin_only, hsv, per_frame_label, best_dist = result
 
-            self.handle_state_machine(stable_label)
+            stable_label, candidate_label, count = self.consensus.step(per_frame_label)
+            if candidate_label is not None:
+                events = self.sequence_manager.handle_candidate(candidate_label, count)
+                self.process_events(events)
 
             ui.draw_hud(
                 vis,
                 self.lower_skin,
                 self.upper_skin,
                 self.current_label,
-                self.sequence_armed,
-                len(self.acciones),
-                self.pending_label,
+                self.sequence_manager.armed,
+                self.sequence_manager.action_count,
+                self.sequence_manager.pending_label,
             )
             ui.draw_prediction(vis, stable_label, best_dist if best_dist else 0.0)
 
