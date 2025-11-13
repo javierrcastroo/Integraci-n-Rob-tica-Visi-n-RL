@@ -5,7 +5,23 @@ import board_state
 
 # Diccionario de ArUco que vamos a usar 
 _ARUCO_DICT = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_5X5_100)
-_ARUCO_PARAMS = cv2.aruco.DetectorParameters()
+
+
+def _create_detector_params():
+    """Devuelve un objeto DetectorParameters compatible con distintas versiones de OpenCV."""
+
+    if hasattr(cv2.aruco, "DetectorParameters"):
+        try:
+            return cv2.aruco.DetectorParameters()
+        except TypeError:
+            # Algunas versiones exigen parámetros opcionales; probamos sin argumentos.
+            pass
+    if hasattr(cv2.aruco, "DetectorParameters_create"):
+        return cv2.aruco.DetectorParameters_create()
+    raise AttributeError("DetectorParameters no disponible en cv2.aruco")
+
+
+_ARUCO_PARAMS = _create_detector_params()
 
 # ID del marcador que usaremos como origen global
 ARUCO_ORIGIN_ID = 1 
@@ -22,8 +38,11 @@ def detect_aruco_origin(frame, aruco_id=ARUCO_ORIGIN_ID, draw=True):
     """
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-    detector = cv2.aruco.ArucoDetector(_ARUCO_DICT, _ARUCO_PARAMS)
-    corners, ids, _ = detector.detectMarkers(gray)
+    if hasattr(cv2.aruco, "ArucoDetector"):
+        detector = cv2.aruco.ArucoDetector(_ARUCO_DICT, _ARUCO_PARAMS)
+        corners, ids, _ = detector.detectMarkers(gray)
+    else:
+        corners, ids, _ = cv2.aruco.detectMarkers(gray, _ARUCO_DICT, parameters=_ARUCO_PARAMS)
 
     if ids is None or len(ids) == 0:
         return False, None
