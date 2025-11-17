@@ -14,7 +14,7 @@ include_directories(
 )
 
 catkin_install_python(PROGRAMS
-  src/webcam_publisher.py
-  src/gesture_node.py
+  src/VC_Gesture/webcam_publisher.py
+  src/VC_Gesture/gesture_node.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
