@@ -1,0 +1,4 @@
+<launch>
+    <node pkg="VC_Gesture" type="webcam_publisher.py" name="webcam_publisher" output="screen" />
+    <node pkg="VC_Gesture" type="gesture_node.py" name="gesture_node" output="screen" />
+</launch>
