@@ -10,6 +10,8 @@ chmod +x src/VC_Board/src/VC_Board/board_node.py
 
 chmod +x src/RB/src/RB/game_logic_node.py
 
+chmod +x src/RL/src/RL/rl_agent_node.py
+
 (abrá mas)
 
 
@@ -31,6 +33,9 @@ roslaunch VC_Gesture gesture.launch
 roslaunch VC_Board board.launch
 
 roslaunch RB logic.launch
+
+roslaunch RL rlModel.launch
+
 
 
 
