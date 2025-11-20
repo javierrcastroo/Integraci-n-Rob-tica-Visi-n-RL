@@ -35,6 +35,67 @@ def calibrate_from_roi(hsv_roi, p_low=5, p_high=95, margin_h=5, margin_sv=20):
     upper = np.array([h_hi, s_hi, v_hi], dtype=np.uint8)
     return lower, upper
 
+
+def hsv_medians(hsv_roi):
+    """Devuelve la mediana de cada canal para un ROI en HSV.
+
+    Filtra valores extremadamente oscuros o saturados para evitar que el papel
+    quemado (muy brillante) o las sombras profundas distorsionen la estadística.
+    """
+    H = hsv_roi[:, :, 0].reshape(-1)
+    S = hsv_roi[:, :, 1].reshape(-1)
+    V = hsv_roi[:, :, 2].reshape(-1)
+
+    mask_valid = (V > 20) & (V < 245) & (S < 245)
+    if mask_valid.sum() > 50:
+        H, S, V = H[mask_valid], S[mask_valid], V[mask_valid]
+
+    return (
+        int(np.median(H)),
+        int(np.median(S)),
+        int(np.median(V)),
+    )
+
+
+def apply_white_reference(lower_skin, upper_skin, ref_info, hsv_frame,
+                          max_shift=(12, 30, 30)):
+    """Ajusta dinámicamente el rango HSV de la piel usando un blanco de referencia.
+
+    - `ref_info` debe tener las claves `median` (HSV base del papel) y `roi`
+      (x0, x1, y0, y1) donde se encuentra el papel en la imagen.
+    - `max_shift` limita cuánto se puede desplazar cada canal para evitar derivas
+      agresivas por ruido o cambios puntuales.
+    """
+    if lower_skin is None or upper_skin is None or ref_info is None:
+        return lower_skin, upper_skin, (0, 0, 0)
+
+    x0, x1, y0, y1 = ref_info.get("roi", (0, 0, 0, 0))
+    h, w = hsv_frame.shape[:2]
+    x0, x1 = sorted((clamp(x0, 0, w), clamp(x1, 0, w)))
+    y0, y1 = sorted((clamp(y0, 0, h), clamp(y1, 0, h)))
+    if x1 - x0 < 5 or y1 - y0 < 5:
+        return lower_skin, upper_skin, (0, 0, 0)
+
+    roi = hsv_frame[y0:y1, x0:x1]
+    current_med = hsv_medians(roi)
+    base_med = ref_info.get("median", (0, 0, 0))
+
+    delta = [
+        clamp(current_med[i] - base_med[i], -max_shift[i], max_shift[i])
+        for i in range(3)
+    ]
+
+    new_lower = np.array([
+        clamp(int(lower_skin[i]) + delta[i], 0, 179 if i == 0 else 255)
+        for i in range(3)
+    ], dtype=np.uint8)
+    new_upper = np.array([
+        clamp(int(upper_skin[i]) + delta[i], 0, 179 if i == 0 else 255)
+        for i in range(3)
+    ], dtype=np.uint8)
+
+    return new_lower, new_upper, tuple(delta)
+
 def largest_component_mask(binary):
     num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(binary, connectivity=8)
     if num_labels <= 1:
