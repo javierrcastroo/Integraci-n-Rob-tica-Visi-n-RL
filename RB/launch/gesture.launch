@@ -1,0 +1,3 @@
+<launch>
+    <node pkg="RB" type="game_logic_node.py" name="game_logic_node" output="screen" />
+</launch>
