@@ -1,0 +1,4 @@
+<launch>
+    <node pkg="VC_Board" type="board_camera_node.py" name="board_camera_node" output="screen" />
+    <node pkg="VC_Board" type="board_node.py" name="board_node" output="screen" />
+</launch>
