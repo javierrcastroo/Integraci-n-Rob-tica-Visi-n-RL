@@ -14,8 +14,7 @@ MISS = 1
 HIT = 2
 
 # Se carga el mejor modelo entrenado
-MODEL_PATH = rospy.get_param("~model_path",
-                             "/home/juan_ariza_17/RL/PRACTICA-FINAL-RL/Integracion-Robotica/models/best_model.zip")
+MODEL_PATH = rospy.get_package_path("RL") + "/src/RL/models/best_model.zip"
 
 # Estado interno del agente (igual que en el entorno Gym)
 guess_board = np.zeros((BOARD_SIZE, BOARD_SIZE), dtype=np.int8)
