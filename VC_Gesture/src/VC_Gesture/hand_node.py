@@ -4,12 +4,21 @@ import json
 import cv2
 import numpy as np
 from collections import deque
+import sys  
 
 import rospy
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge, CvBridgeError
 from std_msgs.msg import String
+# --- AÑADIDO: para encontrar hand_config, segmentation, ui, etc. ---
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))          # .../scripts/hand
+if CURRENT_DIR not in sys.path:
+    sys.path.insert(0, CURRENT_DIR)
 
+# si algunos módulos estuvieran en scripts/ (no en hand/), se podría añadir también:
+SCRIPTS_DIR = os.path.dirname(CURRENT_DIR)                        # .../scripts
+if SCRIPTS_DIR not in sys.path:
+    sys.path.insert(0, SCRIPTS_DIR)
 from hand_config import (
     PREVIEW_W, PREVIEW_H,
     RECOGNIZE_MODE,

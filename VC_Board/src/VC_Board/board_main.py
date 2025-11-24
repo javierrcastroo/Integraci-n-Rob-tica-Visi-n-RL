@@ -8,7 +8,7 @@ import board_ui
 import board_state
 import board_processing as bp
 import aruco_utils
-import battleship_logic
+import src.battleship_vision.game_logic.battleship_logic
 
 def main():
     cap = cv2.VideoCapture(1)

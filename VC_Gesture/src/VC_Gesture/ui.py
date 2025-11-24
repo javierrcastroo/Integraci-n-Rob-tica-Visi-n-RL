@@ -44,12 +44,6 @@ def draw_hud(img, lower_skin, upper_skin, current_label):
                     cv2.FONT_HERSHEY_SIMPLEX, 0.45,
                     (180, 200, 255), 1, cv2.LINE_AA)
 
-    if white_ref_ready:
-        cv2.putText(img,
-                    f"Ref blanco activa. Delta HSV: {shift_delta}",
-                    (10, img.shape[0] - 40),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.45,
-                    (255, 220, 180), 1, cv2.LINE_AA)
 
 def draw_prediction(img, label, dist):
     if label is None:

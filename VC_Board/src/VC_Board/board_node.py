@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import os
+import sys
 import json
-from collections import Counter, defaultdict
 import cv2
 import numpy as np
 
@@ -10,12 +10,36 @@ from sensor_msgs.msg import Image
 from cv_bridge import CvBridge, CvBridgeError
 from std_msgs.msg import String
 
+# ============================================================
+#   FIX IMPORT PATHS (VERY IMPORTANT FOR ROS)
+# ============================================================
+
+# Directory: .../scripts/board
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+if CURRENT_DIR not in sys.path:
+    sys.path.insert(0, CURRENT_DIR)
+
+# Directory: .../scripts
+SCRIPTS_DIR = os.path.dirname(CURRENT_DIR)
+if SCRIPTS_DIR not in sys.path:
+    sys.path.insert(0, SCRIPTS_DIR)
+
+# Directory: .../scripts/game_logic
+GAME_LOGIC_DIR = os.path.join(SCRIPTS_DIR, "game_logic")
+if GAME_LOGIC_DIR not in sys.path:
+    sys.path.insert(0, GAME_LOGIC_DIR)
+
+# ============================================================
+#   IMPORTS FROM PROJECT
+# ============================================================
+
 from board_config import USE_UNDISTORT_BOARD, BOARD_CAMERA_PARAMS_PATH, WARP_SIZE
 import board_ui
 import board_state
 import board_processing as bp
 import aruco_utils
-import battleship_logic
+from game_logic.battleship_logic import evaluate_board
+from collections import defaultdict, Counter
 
 
 class LayoutAccumulator:
@@ -231,7 +255,7 @@ class BoardNode(object):
         # validación de cada layout (como antes)
         validation_map = {}
         for layout in layouts:
-            ok, msg_text = battleship_logic.evaluate_board(layout)
+            ok, msg_text = evaluate_board(layout)
             validation_map[layout["name"]] = (ok, msg_text)
             print(f"[{layout['name']}] {msg_text}")
 

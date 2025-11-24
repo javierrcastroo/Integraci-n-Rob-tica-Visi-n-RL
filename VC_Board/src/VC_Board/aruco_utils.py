@@ -1,63 +1,126 @@
-# aruco_utils.py
+#!/usr/bin/env python3
 import cv2
 import numpy as np
+
 import board_state
 
-# Diccionario de ArUco que vamos a usar 
-_ARUCO_DICT = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_5X5_100)
-_ARUCO_PARAMS = cv2.aruco.DetectorParameters()
+"""
+Utilidades para trabajar con marcadores ArUco y actualizar el ORIGEN
+global del tablero (board_state.GLOBAL_ORIGIN) a partir de un ID concreto.
+"""
 
-# ID del marcador que usaremos como origen global
-ARUCO_ORIGIN_ID = 2
+# --------------------------------------------------------------------
+# Inicialización compatible con varias versiones de OpenCV
+# --------------------------------------------------------------------
+
+# Diccionario ArUco
+try:
+    # API nueva (OpenCV >= 4.7)
+    _ARUCO_DICT = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_5X5_100)
+except AttributeError:
+    # API clásica (la que suele venir con ROS Noetic / Ubuntu 20.04)
+    _ARUCO_DICT = cv2.aruco.Dictionary_get(cv2.aruco.DICT_5X5_100)
+
+# Parámetros del detector + posible ArucoDetector (API nueva)
+_USE_NEW_API = False
+_ARUCO_DETECTOR = None
+
+try:
+    # OpenCV reciente: cv2.aruco.DetectorParameters() existe
+    _ARUCO_PARAMS = cv2.aruco.DetectorParameters()
+    _ARUCO_DETECTOR = cv2.aruco.ArucoDetector(_ARUCO_DICT, _ARUCO_PARAMS)
+    _USE_NEW_API = True
+except AttributeError:
+    # OpenCV antiguo: sólo existe DetectorParameters_create()
+    _ARUCO_PARAMS = cv2.aruco.DetectorParameters_create()
+    _ARUCO_DETECTOR = None
+    _USE_NEW_API = False
 
 
-def detect_aruco_origin(frame, aruco_id=ARUCO_ORIGIN_ID, draw=True):
+# --------------------------------------------------------------------
+# Funciones internas de detección
+# --------------------------------------------------------------------
+
+def _detect_markers(gray):
     """
-    Detecta en 'frame' un marcador ArUco con ID = aruco_id.
-    Si lo encuentra:
-      - devuelve True, (cx, cy)
-      - opcionalmente lo dibuja
-    Si no:
-      - devuelve False, None
+    Envuelve la llamada a detectMarkers para soportar tanto la API nueva
+    (ArucoDetector) como la clásica (cv2.aruco.detectMarkers).
+    Devuelve (corners, ids, rejected).
     """
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    if _USE_NEW_API and _ARUCO_DETECTOR is not None:
+        corners, ids, rejected = _ARUCO_DETECTOR.detectMarkers(gray)
+    else:
+        corners, ids, rejected = cv2.aruco.detectMarkers(
+            gray,
+            _ARUCO_DICT,
+            parameters=_ARUCO_PARAMS
+        )
+    return corners, ids, rejected
 
-    detector = cv2.aruco.ArucoDetector(_ARUCO_DICT, _ARUCO_PARAMS)
-    corners, ids, _ = detector.detectMarkers(gray)
+
+def _marker_center(corners):
+    """
+    corners: array de shape (1, 4, 2) típico de detectMarkers.
+    Devuelve (cx, cy) en píxeles.
+    """
+    pts = corners.reshape(-1, 2)  # (4, 2)
+    cx = float(np.mean(pts[:, 0]))
+    cy = float(np.mean(pts[:, 1]))
+    return cx, cy
+
+
+# --------------------------------------------------------------------
+# API principal
+# --------------------------------------------------------------------
+
+def update_global_origin_from_aruco(frame_bgr, aruco_id=2, draw=False):
+    """
+    Busca un marcador ArUco con el ID dado en el frame BGR y, si lo encuentra,
+    actualiza board_state.GLOBAL_ORIGIN con el centro del marcador en píxeles.
+
+    :param frame_bgr: imagen en BGR (OpenCV) de la cámara del tablero
+    :param aruco_id:  ID del marcador que define el ORIGEN (por defecto 2)
+    :param draw:      si True, dibuja el marcador y el centro sobre la imagen
+                      (útil para debug si luego usas esta imagen)
+    :return: True si ha encontrado ese marcador y ha actualizado el origen,
+             False en caso contrario.
+    """
+    if frame_bgr is None or frame_bgr.size == 0:
+        return False
+
+    gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
+    corners_list, ids, _ = _detect_markers(gray)
 
     if ids is None or len(ids) == 0:
-        return False, None
+        # No se ve ningún marcador
+        return False
 
-    ids = ids.flatten()
-    for corner, marker_id in zip(corners, ids):
-        if marker_id == aruco_id:
-            pts = corner.reshape((4, 2))
-            (tl, tr, br, bl) = pts
-            # centro del marcador
-            cx = int((tl[0] + br[0]) / 2.0)
-            cy = int((tl[1] + br[1]) / 2.0)
+    found = False
+    for corners, mid in zip(corners_list, ids.flatten()):
+        if int(mid) == int(aruco_id):
+            cx, cy = _marker_center(corners)
+            board_state.GLOBAL_ORIGIN = (cx, cy)
+            found = True
 
             if draw:
-                cv2.polylines(frame, [pts.astype(int)], True, (0, 255, 0), 2)
-                cv2.circle(frame, (cx, cy), 6, (0, 255, 0), -1)
-                cv2.putText(frame, f"ArUco {marker_id}", (cx + 10, cy - 10),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1, cv2.LINE_AA)
+                # Dibuja el contorno y el centro para depuración
+                cv2.polylines(
+                    frame_bgr,
+                    [corners.astype(np.int32)],
+                    isClosed=True,
+                    color=(0, 255, 0),
+                    thickness=2,
+                )
+                cv2.circle(frame_bgr, (int(cx), int(cy)), 6, (0, 0, 255), -1)
+                cv2.putText(
+                    frame_bgr,
+                    f"ArUco {aruco_id}",
+                    (int(cx) + 10, int(cy) - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.5,
+                    (0, 255, 0),
+                    2,
+                )
+            break
 
-            return True, (cx, cy)
-
-    return False, None
-
-
-def update_global_origin_from_aruco(frame, aruco_id=ARUCO_ORIGIN_ID):
-    """
-    Llama a detect_aruco_origin y, si lo encuentra, actualiza board_state.GLOBAL_ORIGIN.
-    Si no lo ve un frame, aguanta unos cuantos antes de borrarlo.
-    """
-    ok, pt = detect_aruco_origin(frame, aruco_id=aruco_id, draw=True)
-    if ok:
-        board_state.GLOBAL_ORIGIN = pt
-        board_state.GLOBAL_ORIGIN_MISS = 0
-    else:
-        board_state.GLOBAL_ORIGIN_MISS += 1
-        if board_state.GLOBAL_ORIGIN_MISS > board_state.GLOBAL_ORIGIN_MAX_MISS:
-            board_state.GLOBAL_ORIGIN = None
+    return found
