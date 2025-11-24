@@ -1,6 +1,20 @@
 #!/usr/bin/env python3
 import rospy
+import rospkg
 import numpy as np
+import sys
+import types
+
+# --- Patch para cargar modelos entrenados con NumPy >=2 en Python 3.8 ---
+numpy_core = types.ModuleType("numpy._core")
+sys.modules["numpy._core"] = numpy_core
+
+# submódulos comunes que SB3/Cloudpickle puede intentar importar
+submodules = ["numeric", "multiarray", "umath", "defchararray", "memmap", "numerictypes"]
+for name in submodules:
+    fake_sub = types.ModuleType(f"numpy._core.{name}")
+    setattr(numpy_core, name, fake_sub)
+    sys.modules[f"numpy._core.{name}"] = fake_sub
 
 from std_msgs.msg import String, Empty
 from sb3_contrib import MaskablePPO
@@ -14,7 +28,8 @@ MISS = 1
 HIT = 2
 
 # Se carga el mejor modelo entrenado
-MODEL_PATH = rospy.get_package_path("RL") + "/src/RL/models/best_model.zip"
+rospack = rospkg.RosPack()
+MODEL_PATH = rospack.get_path("RL") + "/src/RL/models/saved_models/best_model"
 
 # Estado interno del agente (igual que en el entorno Gym)
 guess_board = np.zeros((BOARD_SIZE, BOARD_SIZE), dtype=np.int8)
@@ -179,3 +194,4 @@ if __name__ == "__main__":
 
     rospy.loginfo("[RL] Nodo del agente RL inicializado. Esperando turnos...")
     rospy.spin()
+
