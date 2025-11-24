@@ -8,7 +8,7 @@ SCRIPTS_DIR = os.path.dirname(CURRENT_DIR)                    # .../scripts
 if SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, SCRIPTS_DIR)
 
-from usb_camera_node import main
+from VC_Gesture.usb_camera import main
 
 
 if __name__ == "__main__":
