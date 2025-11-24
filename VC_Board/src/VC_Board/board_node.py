@@ -38,7 +38,7 @@ import board_ui
 import board_state
 import board_processing as bp
 import aruco_utils
-from game_logic.battleship_logic import evaluate_board
+from VC_Board.battleship_logic import evaluate_board
 from collections import defaultdict, Counter
 
 
