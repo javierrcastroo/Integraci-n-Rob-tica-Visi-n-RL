@@ -1,4 +1,4 @@
-﻿# Integración Robótica Visión RL
+# Integración Robótica Visión RL
 
 chmod +x src/VC_Gesture/src/VC_Gesture/hand_camera_node.py
 
@@ -13,6 +13,8 @@ chmod +x src/RB/src/RB/game_logic_node.py
 chmod +x src/RL/src/RL/rl_agent_node.py
 
 (abrá mas)
+
+pip3 install stable-baselines3 sb3-contrib
 
 
 unzip src/VC_Gesture/src/VC_Gesture/gestures.zip -d src/VC_Gesture/src/VC_Gesture/
@@ -35,10 +37,3 @@ roslaunch VC_Board board.launch
 roslaunch RB logic.launch
 
 roslaunch RL rlModel.launch
-
-
-
-
-
-
-
