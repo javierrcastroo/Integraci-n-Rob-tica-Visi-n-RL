@@ -66,7 +66,7 @@ echo "venv_rl creado en: $WORKDIR/venv_rl"
 echo ""
 
 # ----- 5. Instalar librerías dentro del venv -----
-echo "[5/6] Instalando NumPy, Gymnasium y Stable-Baselines3..."
+echo "[5/6] Instalando NumPy, Gymnasium, Stable-Baselines3 y SB3-contrib..."
 
 source venv_rl/bin/activate
 pip install --upgrade pip
@@ -74,6 +74,7 @@ pip install --upgrade pip
 pip install numpy==2.2.6
 pip install gymnasium[all]==1.2.0
 pip install stable-baselines3[extra]==2.7.0
+pip install sb3-contrib==2.7.0
 
 deactivate
 
