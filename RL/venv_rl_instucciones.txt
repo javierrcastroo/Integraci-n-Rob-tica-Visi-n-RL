@@ -1,0 +1,18 @@
+cd ~/ros_workspace/RL
+
+python3.10 -m venv venv_rl
+
+source venv_rl/bin/actívate
+
+pip install --upgrade pip
+
+pip install numpy==2.2.6
+
+pip install gymnasium[all]==1.2.0
+
+pip install stable-baselines3[extra]==2.7.0
+
+# VERIFICACIÓN
+python -c "import numpy as np; import gymnasium; import stable_baselines3 as sb3; print(np.__version__, gymnasium.__version__, sb3.__version__)"
+
+deativatee
