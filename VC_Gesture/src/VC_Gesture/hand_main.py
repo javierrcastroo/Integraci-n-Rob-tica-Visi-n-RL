@@ -2,6 +2,9 @@
 import cv2
 import os
 import numpy as np
+import rospy
+from sensor_msgs.msg import Image
+from cv_bridge import CvBridge, CvBridgeError
 
 from hand_config import (
     PREVIEW_W, PREVIEW_H,
@@ -60,9 +63,23 @@ class GestureWindow:
 
 
 def main():
-    cap = cv2.VideoCapture(0)
-    if not cap.isOpened():
-        raise RuntimeError("No se pudo abrir la cámara 0 (mano)")
+    rospy.init_node("hand_main_viewer", anonymous=False)
+
+    bridge = CvBridge()
+    image_topic = rospy.get_param("~image_topic", "hand_camera/image_raw")
+    loop_rate = rospy.Rate(rospy.get_param("~loop_rate", 30.0))
+    last_frame = {"frame": None}
+
+    def _cb_image(msg: Image):
+        try:
+            frame = bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
+        except CvBridgeError as exc:
+            rospy.logwarn("[hand_main] Error CvBridge: %s", exc)
+            return
+        last_frame["frame"] = frame
+
+    rospy.Subscriber(image_topic, Image, _cb_image, queue_size=1)
+    rospy.loginfo("[hand_main] Esperando imágenes en %s", image_topic)
 
     HAND_CAM_MTX = HAND_DIST = None
     if USE_UNDISTORT_HAND and os.path.exists(HAND_CAMERA_PARAMS_PATH):
@@ -96,10 +113,11 @@ def main():
     cv2.namedWindow("Mano")
     cv2.setMouseCallback("Mano", ui.mouse_callback)
 
-    while True:
-        ok, frame = cap.read()
-        if not ok:
-            break
+    while not rospy.is_shutdown():
+        frame = last_frame["frame"]
+        if frame is None:
+            loop_rate.sleep()
+            continue
 
         # undistort
         if HAND_CAM_MTX is not None:
@@ -157,7 +175,7 @@ def main():
         cv2.imshow("Solo piel mano", skin_only)
 
         key = cv2.waitKey(1) & 0xFF
-        if key in (27, ord('q')):
+        if key in (27, ord('q')) or rospy.is_shutdown():
             break
 
         # -------- flujo controlado por gestos --------
@@ -281,7 +299,6 @@ def main():
             }
             current_label = mapping[key]
 
-    cap.release()
     cv2.destroyAllWindows()
 
 

@@ -2,6 +2,9 @@
 import cv2
 import os
 import numpy as np
+import rospy
+from sensor_msgs.msg import Image
+from cv_bridge import CvBridge, CvBridgeError
 
 from board_config import USE_UNDISTORT_BOARD, BOARD_CAMERA_PARAMS_PATH, WARP_SIZE
 import board_ui
@@ -11,9 +14,23 @@ import aruco_utils
 import src.battleship_vision.game_logic.battleship_logic
 
 def main():
-    cap = cv2.VideoCapture(1)
-    if not cap.isOpened():
-        raise RuntimeError("No se pudo abrir la cámara 1 (tablero)")
+    rospy.init_node("board_main_viewer", anonymous=False)
+
+    bridge = CvBridge()
+    image_topic = rospy.get_param("~image_topic", "board_camera/image_raw")
+    loop_rate = rospy.Rate(rospy.get_param("~loop_rate", 30.0))
+    last_frame = {"frame": None}
+
+    def _cb_image(msg: Image):
+        try:
+            frame = bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
+        except CvBridgeError as exc:
+            rospy.logwarn("[board_main] Error CvBridge: %s", exc)
+            return
+        last_frame["frame"] = frame
+
+    rospy.Subscriber(image_topic, Image, _cb_image, queue_size=1)
+    rospy.loginfo("[board_main] Esperando imágenes en %s", image_topic)
 
     # cargar calibración de cámara
     mtx = dist = None
@@ -32,10 +49,11 @@ def main():
     cv2.namedWindow("Tablero")
     cv2.setMouseCallback("Tablero", board_ui.board_mouse_callback)
 
-    while True:
-        ok, frame = cap.read()
-        if not ok:
-            break
+    while not rospy.is_shutdown():
+        frame = last_frame["frame"]
+        if frame is None:
+            loop_rate.sleep()
+            continue
 
         # detectar el ORIGEN con ArUco cada frame
         aruco_utils.update_global_origin_from_aruco(frame, aruco_id=2)
@@ -88,12 +106,11 @@ def main():
             cv2.imshow("Mascara municion", mask_m)
 
         key = cv2.waitKey(1) & 0xFF
-        if key in (27, ord("q")):
+        if key in (27, ord("q")) or rospy.is_shutdown():
             break
 
         handle_keys(key, frame)
 
-    cap.release()
     cv2.destroyAllWindows()
 
 
