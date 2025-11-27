@@ -13,7 +13,9 @@ chmod +x src/RB/src/RB/game_logic_node.py
 chmod +x src/RL/src/RL/rl_agent_node.py
 
 (abrá mas)
+
 chmod +x src/RL/setup_rl_env.sh
+
 ./src/RL/setup_rl_env.sh
 
 
@@ -37,4 +39,5 @@ roslaunch VC_Board board.launch
 roslaunch RB logic.launch
 
 roslaunch RL rlModel.launch
+
 
