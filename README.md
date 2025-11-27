@@ -19,7 +19,6 @@ chmod +x src/RL/setup_rl_env.sh
 ./src/RL/setup_rl_env.sh
 
 
-unzip src/VC_Gesture/src/VC_Gesture/gestures.zip -d src/VC_Gesture/src/VC_Gesture/
 
 
 rm -rf build/ devel/ log/ # limpia compilaciones previas 
@@ -39,5 +38,6 @@ roslaunch VC_Board board.launch
 roslaunch RB logic.launch
 
 roslaunch RL rlModel.launch
+
 
 
