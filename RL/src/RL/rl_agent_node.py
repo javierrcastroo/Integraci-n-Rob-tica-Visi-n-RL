@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/home/laboratorio/ros_workspace/RL/venv_rl/bin/python
 import rospy
 import rospkg
 import numpy as np
