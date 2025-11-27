@@ -13,8 +13,8 @@ chmod +x src/RB/src/RB/game_logic_node.py
 chmod +x src/RL/src/RL/rl_agent_node.py
 
 (abrá mas)
-
-pip3 install stable-baselines3 sb3-contrib
+chmod +x src/RL/setup_rl_env.sh
+./src/RL/setup_rl_env.sh
 
 
 unzip src/VC_Gesture/src/VC_Gesture/gestures.zip -d src/VC_Gesture/src/VC_Gesture/
@@ -37,3 +37,4 @@ roslaunch VC_Board board.launch
 roslaunch RB logic.launch
 
 roslaunch RL rlModel.launch
+
