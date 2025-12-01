@@ -4,6 +4,7 @@ import rospy
 import rospkg
 import subprocess
 import json
+import threading
 
 from std_msgs.msg import String, Empty
 
@@ -21,6 +22,18 @@ fire_pub = None
 
 def index_to_coord(row, col):
     return f"{chr(ord('A') + row)}{col + 1}"
+
+
+#  STREAM STDERR DEL SERVIDOR RL
+
+def stream_server_stderr(proc):
+    """Lee stderr del servidor RL y lo vuelca al log de ROS."""
+    def _reader():
+        for line in proc.stderr:
+            rospy.logwarn("[RL-SERVER] " + line.strip())
+
+    th = threading.Thread(target=_reader, daemon=True)
+    th.start()
 
 
 # ------------------- INFERENCIA REMOTA -----------------
@@ -46,6 +59,10 @@ def start_rl_server():
     model_stdout = model_proc.stdout
 
     rospy.loginfo("[RL] Servidor RL lanzado.")
+    
+    # activar lectura async de errores
+    stream_server_stderr(model_proc)
+    
 
 
 def rl_predict():
