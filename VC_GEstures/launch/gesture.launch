@@ -1,0 +1,5 @@
+<launch>
+    <node pkg="VC_Gesture" type="hand_main.py" name="hand_main" output="screen" />
+</launch>
+
+

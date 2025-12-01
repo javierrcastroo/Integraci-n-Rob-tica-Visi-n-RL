@@ -1,6 +1,0 @@
-<launch>
-    <node pkg="VC_Gesture" type="hand_camera_node.py" name="hand_camera_node" output="screen" />
-    <node pkg="VC_Gesture" type="hand_node.py" name="hand_node" output="screen" />
-</launch>
-
-

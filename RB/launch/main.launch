@@ -1,0 +1,19 @@
+<launch>
+
+    <!-- ====================================== -->
+    <!--            LANZAR CÁMARAS              -->
+    <!-- ====================================== -->
+    <include file="$(find RB)/launch/sistema.launch" />
+
+
+    <!-- ====================================== -->
+    <!--       NODO DE RECONOCIMIENTO DE GESTOS -->
+    <!-- ====================================== -->
+    <include file="$(find VC_Gesture)/launch/gesture.launch" />
+
+    <!-- ====================================== -->
+    <!--       NODO DE DETECCIÓN DEL TABLERO    -->
+    <!-- ====================================== -->
+    <include file="$(find VC_Board)/launch/board.launch" />
+
+</launch>

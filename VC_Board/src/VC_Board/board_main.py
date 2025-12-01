@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 # board_main.py
 import cv2
 import os
@@ -15,7 +17,7 @@ import board_ui
 import board_state
 import board_processing as bp
 import aruco_utils
-import src.battleship_vision.game_logic.battleship_logic
+import battleship_logic
 
 
 class LayoutAccumulator:
@@ -153,14 +155,14 @@ class BoardMainNode:
         self.bridge = CvBridge()
         self.last_frame = None
 
-        self.capture_frames = rospy.get_param("~capture_frames", 150)
+        self.capture_frames = 150
         self.capture_state = "WAIT_TRIGGER"
         self.capture_progress = 0.0
         self.status_lines = ["Ajusta HSV y pulsa 's' para enviar el tablero."]
         self.accumulator = None
         self.capture_reason = "manual"
 
-        image_topic = rospy.get_param("~image_topic", "board_camera/image_raw")
+        image_topic = "/camara_tablero/usb_cam/image_raw"
         rospy.loginfo("[board_main] Suscribiéndose a %s", image_topic)
         self.image_sub = rospy.Subscriber(image_topic, Image, self.cb_image, queue_size=1)
 

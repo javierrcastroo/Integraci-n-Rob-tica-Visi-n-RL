@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 # hand_main.py
 import cv2
 import os
@@ -27,7 +29,7 @@ from classifier import knn_predict
 from storage import save_gesture_example, load_gesture_gallery, save_sequence_json
 from collections import deque
 
-GESTURE_WINDOW_FRAMES = 150
+GESTURE_WINDOW_FRAMES = 800
 MAX_SEQUENCE_LENGTH = 2
 TRIGGER_GESTURES = {"demond", "demonio"}
 CONFIRM_GESTURE = "ok"
@@ -69,8 +71,8 @@ def main():
     rospy.init_node("hand_main_viewer", anonymous=False)
 
     bridge = CvBridge()
-    image_topic = rospy.get_param("~image_topic", "hand_camera/image_raw")
-    loop_rate = rospy.Rate(rospy.get_param("~loop_rate", 30.0))
+    image_topic = "/camara_gestos/usb_cam/image_raw"
+    loop_rate = 10.0
     last_frame = {"frame": None}
     attack_pub = rospy.Publisher("battleship/attack", String, queue_size=10)
     last_result_msg = {"text": ""}
