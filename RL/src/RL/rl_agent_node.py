@@ -30,7 +30,7 @@ def stream_server_stderr(proc):
     """Lee stderr del servidor RL y lo vuelca al log de ROS."""
     def _reader():
         for line in proc.stderr:
-            rospy.logwarn("[RL-SERVER] " + line.strip())
+            rospy.loginfo("[RL-SERVER] " + line.strip())
 
     th = threading.Thread(target=_reader, daemon=True)
     th.start()
