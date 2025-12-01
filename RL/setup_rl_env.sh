@@ -72,7 +72,7 @@ source venv_rl/bin/activate
 pip install --upgrade pip
 
 pip install numpy==2.2.6
-pip install gymnasium[all]==1.2.0
+pip install "gymnasium==1.2.0"
 pip install stable-baselines3[extra]==2.7.0
 pip install sb3-contrib==2.7.0
 
