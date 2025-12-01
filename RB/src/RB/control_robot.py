@@ -14,9 +14,19 @@ from control_msgs.msg import GripperCommandAction, GripperCommandGoal, GripperCo
 from actionlib import SimpleActionClient
 
 class ControlRobot:
-    def __init__(self) -> None:
+    def __init__(self, *, init_ros_node: bool = True, node_name: str = "control_robot") -> None:
+        """Inicializa el controlador del robot.
+
+        Args:
+            init_ros_node: Si es True y ROS no está inicializado, crea el nodo con
+                ``node_name``. Esto permite reutilizar la clase desde otros nodos
+                que ya hayan llamado a ``rospy.init_node``.
+            node_name: Nombre del nodo ROS en caso de inicializarlo aquí.
+        """
+
         roscpp_initialize(sys.argv)
-        rospy.init_node("control_robot", anonymous=True)
+        if init_ros_node and not rospy.core.is_initialized():
+            rospy.init_node(node_name, anonymous=True)
         self.robot = RobotCommander()
         self.scene = PlanningSceneInterface()
         self.group_name = "robot"
