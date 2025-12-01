@@ -1,10 +1,12 @@
 # hand_main.py
 import cv2
 import os
+import json
 import numpy as np
 import rospy
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge, CvBridgeError
+from std_msgs.msg import String
 
 from hand_config import (
     PREVIEW_W, PREVIEW_H,
@@ -18,6 +20,7 @@ import ui
 from segmentation import (
     calibrate_from_roi,
     segment_hand_mask,
+    hsv_medians,
 )
 from features import compute_feature_vector
 from classifier import knn_predict
@@ -69,6 +72,8 @@ def main():
     image_topic = rospy.get_param("~image_topic", "hand_camera/image_raw")
     loop_rate = rospy.Rate(rospy.get_param("~loop_rate", 30.0))
     last_frame = {"frame": None}
+    attack_pub = rospy.Publisher("battleship/attack", String, queue_size=10)
+    last_result_msg = {"text": ""}
 
     def _cb_image(msg: Image):
         try:
@@ -78,7 +83,25 @@ def main():
             return
         last_frame["frame"] = frame
 
+    def _cb_attack_result(msg: String):
+        try:
+            data = json.loads(msg.data)
+        except Exception as exc:
+            rospy.logwarn("[hand_main] Error parseando resultado ataque: %s", exc)
+            return
+
+        cell = data.get("cell", {})
+        cell_name = cell.get("name", "?")
+        result = data.get("result", "unknown")
+        message = data.get("message", "")
+
+        rospy.loginfo(
+            "[hand_main] Resultado ataque en %s: %s - %s", cell_name, result, message
+        )
+        last_result_msg["text"] = message or f"Resultado: {result} en {cell_name}"
+
     rospy.Subscriber(image_topic, Image, _cb_image, queue_size=1)
+    rospy.Subscriber("battleship/attack_result", String, _cb_attack_result, queue_size=10)
     rospy.loginfo("[hand_main] Esperando imágenes en %s", image_topic)
 
     HAND_CAM_MTX = HAND_DIST = None
@@ -109,6 +132,16 @@ def main():
     def set_status(lines):
         nonlocal status_lines
         status_lines = lines
+
+    def send_attack(acciones):
+        payload = {
+            "player": "P1",
+            "gestures": list(acciones),
+        }
+        msg = String()
+        msg.data = json.dumps(payload)
+        rospy.loginfo("[hand_main] Publicando ataque: %s", msg.data)
+        attack_pub.publish(msg)
 
     cv2.namedWindow("Mano")
     cv2.setMouseCallback("Mano", ui.mouse_callback)
@@ -165,7 +198,7 @@ def main():
             acciones,
             capture_state,
             pending_candidate,
-            status_lines,
+            status_lines if last_result_msg["text"] == "" else [last_result_msg["text"]],
             gesture_window.progress(),
         )
 
@@ -209,7 +242,7 @@ def main():
                     if len(acciones) >= MAX_SEQUENCE_LENGTH:
                         set_state(
                             "COOL",
-                            ["Secuencia completa, haz 'cool' para imprimirla."],
+                            ["Secuencia completa, haz 'cool' para lanzar el ataque."],
                         )
                     else:
                         set_state("CAPTURA", ["Gesto guardado. Muestra el siguiente gesto."])
@@ -222,6 +255,7 @@ def main():
 
             elif capture_state == "COOL":
                 if resolved_label == PRINT_GESTURE and len(acciones) == MAX_SEQUENCE_LENGTH:
+                    send_attack(acciones)
                     print("[INFO] Secuencia final:", acciones)
                     save_sequence_json(acciones)
                     acciones.clear()
