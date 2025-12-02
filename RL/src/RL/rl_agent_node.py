@@ -115,6 +115,8 @@ def feedback_callback(msg):
 
     if fb in ["tocado", "hundido"]:
         agent_fire()
+    elif fb == "repetido":
+        agent_fire()
     elif fb == "victoria":
         reset_internal_state()
 
