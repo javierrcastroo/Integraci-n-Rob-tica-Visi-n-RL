@@ -1,20 +1,20 @@
-# Integración Robótica Visión RL
+# Integración Robótica Visión refuerzo
 
-chmod +x src/VC_Gesture/src/VC_Gesture/hand_main.py
+chmod +x src/vision_gestos/src/vision_gestos/hand_main.py
 
-chmod +x src/VC_Board/src/VC_Board/board_main.py
+chmod +x src/vision_tablero/src/vision_tablero/board_main.py
 
-chmod +x src/RB/src/RB/game_logic_node.py
+chmod +x src/robotica/src/robotica/game_logic_node.py
 
-chmod +x src/RB/src/RB/robot_attack_node.py
+chmod +x src/robotica/src/robotica/robot_attack_node.py
 
-chmod +x src/RL/src/RL/rl_agent_node.py
+chmod +x src/refuerzo/src/refuerzo/rl_agent_node.py
 
 (abrá mas)
 
-chmod +x src/RL/setup_rl_env.sh
+chmod +x src/refuerzo/setup_rl_env.sh
 
-./src/RL/setup_rl_env.sh
+./src/refuerzo/setup_rl_env.sh
 
 ---------------------------------------------------------------------------------------------
 
@@ -25,19 +25,19 @@ catkin_make
 
 source devel/setup.bash 
 
-rospack list | grep -E "VC_Gesture|VC_Board|RL|RB"
+rospack list | grep -E "vision_gestos|vision_tablero|refuerzo|robotica"
 
 ---------------------------------------------------------------------------------------------
 
-roslaunch RB sistema.launch
+roslaunch robotica sistema.launch
 
-roslaunch VC_Gesture gesture.launch
+roslaunch vision_gestos gesture.launch
 
-roslaunch VC_Board board.launch
+roslaunch vision_tablero board.launch
 
-roslaunch RB logic.launch
+roslaunch robotica logic.launch
 
-roslaunch RL rlModel.launch
+roslaunch refuerzo rlModel.launch
 
 
 
