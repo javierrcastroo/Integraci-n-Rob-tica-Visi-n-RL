@@ -1,14 +1,12 @@
 from gymnasium.envs.registration import register
-import rospkg
 import sys
 import os
 
 def register_env():
-    rospack = rospkg.RosPack()
-    RL_PATH = rospack.get_path("RL") + "src/RL"
+    base_dir = os.path.dirname(os.path.abspath(__file__))
     
-    if RL_PATH not in sys.path:
-        sys.path.append(RL_PATH)
+    if base_dir not in sys.path:
+        sys.path.append(base_dir)
     
     try:
         register(
