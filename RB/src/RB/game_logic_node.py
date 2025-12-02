@@ -3,7 +3,7 @@ import os
 import sys
 import json
 import rospy
-from std_msgs.msg import String
+from std_msgs.msg import String, Empty
 
 # --- AÑADIDO: asegurar que vemos battleship_logic.py en esta carpeta ---
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
