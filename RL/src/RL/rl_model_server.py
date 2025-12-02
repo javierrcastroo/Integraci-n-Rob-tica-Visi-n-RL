@@ -31,13 +31,13 @@ if len(sys.argv) < 2:
 
 MODEL_PATH = sys.argv[1]
 
-print(f"[RL-SERVER] Cargando modelo PPO: {MODEL_PATH}", file=sys.stderr)
+print(f"Cargando modelo PPO: {MODEL_PATH}", file=sys.stderr)
 
 # Cargar modelo con entorno dummy (NO ROS)
 dummy_env = gym.make("BattleshipROS-v0")
 model = MaskablePPO.load(MODEL_PATH, env=dummy_env)
 
-print("[RL-SERVER] Modelo cargado correctamente.", file=sys.stderr)
+print("Modelo cargado correctamente.", file=sys.stderr)
 
 
 # -------------------------------------------
@@ -47,7 +47,7 @@ print("[RL-SERVER] Modelo cargado correctamente.", file=sys.stderr)
 env = BattleshipMockROSEnv(board_size=5)
 env.reset()
 
-print("[RL-SERVER] Entorno BattleshipMockROSEnv inicializado.", file=sys.stderr)
+print("Entorno BattleshipMockROSEnv inicializado.", file=sys.stderr)
 
 
 # -------------------------------------------
