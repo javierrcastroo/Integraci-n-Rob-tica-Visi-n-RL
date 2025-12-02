@@ -1,3 +1,0 @@
-<launch>
-    <node pkg="VC_Board" type="board_main.py" name="board_main" output="screen" />
-</launch>

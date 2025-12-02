@@ -1,0 +1,4 @@
+<launch>
+    <node pkg="robotica" type="game_logic_node.py" name="game_logic_node" output="screen" />
+    <node pkg="robotica" type="robot_attack_node.py" name="robot_attack_node" output="screen" />
+</launch>

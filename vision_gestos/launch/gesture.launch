@@ -1,0 +1,5 @@
+<launch>
+    <node pkg="vision_gestos" type="hand_main.py" name="hand_main" output="screen" />
+</launch>
+
+
