@@ -79,6 +79,24 @@ class GameLogicNode(object):
             queue_size=10,
         )
 
+        self.rl_turn_pub = rospy.Publisher(
+            "/game/your_turn", Empty, queue_size=10
+        )
+        self.rl_feedback_pub = rospy.Publisher(
+            "/game/feedback", String, queue_size=10
+        )
+        self.rl_state_pub = rospy.Publisher(
+            "/game/state", String, queue_size=10
+        )
+
+        # Escuchar disparos del agente RL
+        self.rl_attack_sub = rospy.Subscriber(
+            "/agent/fire_coordinates",
+            String,
+            self.rl_attack_cb,
+            queue_size=10,
+        )
+
         rospy.loginfo("[game_logic_node] Iniciado. Esperando tablero y ataques...")
 
     # ---------- callback tablero ----------
@@ -243,6 +261,95 @@ class GameLogicNode(object):
             },
             message=message,
         )
+
+    def rl_attack_cb(self, msg):
+        """
+        Ataque del agente RL.
+        msg.data es una coordenada tipo "A3" (fila-letra, columna-número)
+        """
+        if not self.board_valid or self.current_layout is None:
+            rospy.logwarn("[game_logic_node] RL ha atacado pero el tablero no es válido")
+            # Si quieres avisar al RL, podrías publicar algo como "board_invalid"
+            # self.rl_feedback_pub.publish(String("board_invalid"))
+            return
+    
+        coord = msg.data.strip().upper()
+        if len(coord) < 2:
+            rospy.logwarn(f"[game_logic_node] Coordenada RL inválida: '{coord}'")
+            return
+    
+        try:
+            # 'A3' -> row_idx=0, col_idx=2
+            row_idx = ord(coord[0]) - ord('A')
+            col_idx = int(coord[1:]) - 1
+        except Exception as e:
+            rospy.logwarn(f"[game_logic_node] Error parseando coord RL '{coord}': {e}")
+            return
+    
+        # Comprobamos límites de tablero detectado
+        if self.max_row is not None and self.max_col is not None:
+            if row_idx < 0 or row_idx > self.max_row or col_idx < 0 or col_idx > self.max_col:
+                rospy.loginfo(
+                    f"[game_logic_node] Ataque RL fuera de tablero: {coord} "
+                    f"(row={row_idx}, col={col_idx})"
+                )
+                # NO mandamos "agua" al RL aquí.
+                # Simplemente ignoramos.
+                return
+    
+        cell = (row_idx, col_idx)
+        cell_name = _cell_name(row_idx, col_idx)
+    
+        # Ataque repetido
+        if cell in self.hits:
+            rospy.loginfo(f"[game_logic_node] Ataque RL repetido en {cell_name}")
+            self.rl_feedback_pub.publish(String("repetido"))
+            return
+    
+        # Registramos impacto
+        self.hits.add(cell)
+    
+        # Agua vs impacto
+        if cell not in self.all_ship_cells:
+            # Agua
+            rospy.loginfo(f"[game_logic_node] RL: Agua en {cell_name}")
+            self.rl_feedback_pub.publish(String("agua"))
+            return
+    
+        # Impacto
+        result = "hit"
+        message = f"Tocado en {cell_name}"
+    
+        # ¿barco de 2 hundido?
+        if self.ship_two_cells and cell in self.ship_two_cells:
+            if self.ship_two_cells.issubset(self.hits):
+                result = "sunk"
+                message = f"Hundido barco de 2 en {cell_name}"
+    
+        # ¿barco de 1 hundido?
+        if cell in self.ship_one_cells:
+            result = "sunk"
+            message = f"Hundido barco de 1 en {cell_name}"
+    
+        # ¿todos hundidos?
+        if self.all_ship_cells.issubset(self.hits):
+            result = "sunk_all"
+            message = f"¡Todos los barcos hundidos! Último impacto en {cell_name}"
+    
+        rospy.loginfo(f"[game_logic_node] RL: {message}")
+    
+        # Traducir RESULT → feedback RL
+        if result == "hit":
+            self.rl_feedback_pub.publish(String("tocado"))
+    
+        elif result == "sunk":
+            self.rl_feedback_pub.publish(String("hundido"))
+    
+        elif result == "sunk_all":
+            # RL gana la partida
+            self.rl_feedback_pub.publish(String("victoria"))
+            self.rl_state_pub.publish(String("win_agent"))
+
 
     # ---------- publicación resultado ----------
     def publish_result(self, status, result, cell, message):
