@@ -55,7 +55,7 @@ echo "Python 3.10 instalado en: $PY310"
 echo ""
 
 # ----- 4. Crear venv_rl -----
-WORKDIR=~/ros_workspace/RL
+WORKDIR=~/ros_workspace/src/RL
 mkdir -p $WORKDIR
 cd $WORKDIR
 
