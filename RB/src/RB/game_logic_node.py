@@ -269,8 +269,6 @@ class GameLogicNode(object):
         """
         if not self.board_valid or self.current_layout is None:
             rospy.logwarn("[game_logic_node] RL ha atacado pero el tablero no es válido")
-            # Si quieres avisar al RL, podrías publicar algo como "board_invalid"
-            # self.rl_feedback_pub.publish(String("board_invalid"))
             return
     
         coord = msg.data.strip().upper()
@@ -293,7 +291,6 @@ class GameLogicNode(object):
                     f"[game_logic_node] Ataque RL fuera de tablero: {coord} "
                     f"(row={row_idx}, col={col_idx})"
                 )
-                # NO mandamos "agua" al RL aquí.
                 # Simplemente ignoramos.
                 return
     
