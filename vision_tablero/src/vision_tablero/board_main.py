@@ -178,10 +178,7 @@ class BoardMainNode:
             self.mtx = data["camera_matrix"]
             self.dist = data["dist_coeffs"]
 
-        self.boards_state_list = [
-            board_state.init_board_state("T1"),
-            board_state.init_board_state("T2"),
-        ]
+        self.board_state = board_state.init_board_state("T1")
 
         cv2.namedWindow("Tablero")
         cv2.setMouseCallback("Tablero", board_ui.board_mouse_callback)
@@ -333,12 +330,11 @@ class BoardMainNode:
 
             aruco_utils.update_global_origin_from_aruco(frame, aruco_id=2)
 
-            vis, mask_b, mask_ship2, mask_ship1, mask_m, layouts = bp.process_all_boards(
+            vis, mask_b, mask_ship2, mask_ship1, mask_m, layouts = bp.process_board(
                 frame,
-                self.boards_state_list,
+                self.board_state,
                 cam_mtx=self.mtx,
                 dist=self.dist,
-                max_boards=2,
                 warp_size=WARP_SIZE,
             )
 
@@ -348,10 +344,9 @@ class BoardMainNode:
                 validation_map[layout["name"]] = (ok, msg)
                 print(f"[{layout['name']}] {msg}")
 
-            for slot in self.boards_state_list:
-                if slot["name"] in validation_map and slot["last_quad"] is not None:
-                    ok, msg = validation_map[slot["name"]]
-                    board_ui.draw_validation_result(vis, slot["last_quad"], msg, ok)
+            if self.board_state["name"] in validation_map and self.board_state["last_quad"] is not None:
+                ok, msg = validation_map[self.board_state["name"]]
+                board_ui.draw_validation_result(vis, self.board_state["last_quad"], msg, ok)
 
             if board_state.GLOBAL_ORIGIN is not None:
                 gx, gy = board_state.GLOBAL_ORIGIN

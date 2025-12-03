@@ -46,13 +46,35 @@ def _merge_masks(hsv_frame, ranges):
 
 
 def order_points(pts):
-    s = pts.sum(axis=1)
-    diff = np.diff(pts, axis=1)
-    tl = pts[np.argmin(s)]
-    br = pts[np.argmax(s)]
-    tr = pts[np.argmin(diff)]
-    bl = pts[np.argmax(diff)]
-    return np.array([tl, tr, br, bl], dtype=np.float32)
+    """
+    Devuelve los vértices del tablero empezando siempre por la esquina
+    superior-izquierda de lo que se ve en pantalla y siguiendo en sentido
+    horario. Es robusto a la rotación de la cámara, ya que se basa en la
+    posición relativa dentro de la imagen y no en el orden devuelto por
+    los contornos de OpenCV.
+    """
+
+    pts = np.array(pts, dtype=np.float32)
+    center = np.mean(pts, axis=0)
+
+    # Ordenamos los puntos por el ángulo alrededor del centro para que siempre
+    # queden en un lazo consistente (CW/CCW independiente del contorno).
+    angles = np.arctan2(pts[:, 1] - center[1], pts[:, 0] - center[0])
+    ordered = pts[np.argsort(angles)]
+
+    # Rotamos la lista para que el primer elemento sea el que está más arriba
+    # (y, si hay empate, el más a la izquierda). Esto hace que (0,0) sea la
+    # esquina superior-izquierda según se ve en la imagen, incluso si la
+    # cámara está rotada.
+    top_idx = np.lexsort((ordered[:, 0], ordered[:, 1]))[0]
+    ordered = np.roll(ordered, -top_idx, axis=0)
+
+    # Si el recorrido quedó antihorario, lo invertimos para que sea horario.
+    tl, tr, br, bl = ordered
+    if np.cross(tr - tl, br - tr) < 0:
+        ordered = np.array([tl, bl, br, tr], dtype=np.float32)
+
+    return ordered
 
 
 def draw_grid_in_quad(img, quad, n=BOARD_SQUARES):
@@ -124,7 +146,7 @@ def detect_board(frame, camera_matrix=None, dist_coeffs=None):
     return vis, True, ratio_cm_per_pix, height_px, mask_show, quad
 
 
-def detect_multiple_boards(frame, camera_matrix=None, dist_coeffs=None, max_boards=2):
+def detect_multiple_boards(frame, camera_matrix=None, dist_coeffs=None, max_boards=1):
     """
     NUEVO: detecta hasta `max_boards` tableros del mismo color.
     Devuelve:
