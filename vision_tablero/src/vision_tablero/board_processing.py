@@ -7,24 +7,24 @@ import board_state
 import board_ui
 
 
-def process_all_boards(frame, boards_state_list, cam_mtx=None, dist=None, max_boards=2, warp_size=500):
+def process_board(frame, board_state, cam_mtx=None, dist=None, warp_size=500):
     """
-    Detecta varios tableros, los asigna a los slots existentes (T1, T2),
-    procesa cada uno y devuelve todo para mostrar.
+    Procesa un único tablero (T1). Si la cámara está rotada o invertida, la
+    esquina superior-izquierda de lo que se ve en la imagen sigue siendo la
+    casilla (0,0) gracias al reordenado robusto de esquinas en
+    ``board_tracker.order_points``.
     """
+
     vis_all, boards_found, mask_board = board_tracker.detect_multiple_boards(
         frame,
         camera_matrix=cam_mtx,
         dist_coeffs=dist,
-        max_boards=max_boards,
+        max_boards=1,
     )
 
     # dibujar ROI y HUD
     board_ui.draw_board_roi(vis_all)
     board_ui.draw_board_hud(vis_all)
-
-    # asignar detecciones a slots por cercanía
-    assignments = _assign_detections_to_slots(boards_found, boards_state_list)
 
     frame_hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
     ammo_pts, ammo_mask_show = object_tracker.detect_colored_points_global(
@@ -40,20 +40,17 @@ def process_all_boards(frame, boards_state_list, cam_mtx=None, dist=None, max_bo
     ship_one_mask_show = None
     layouts = []
 
-    for slot_idx, slot in enumerate(boards_state_list):
-        det_idx = assignments.get(slot_idx, None)
-        if det_idx is not None:
-            binfo = boards_found[det_idx]
-            quad = binfo["quad"]
-            slot["last_quad"] = quad
-            slot["miss"] = 0
-            ship_two_mask_show, ship_one_mask_show, layout_info = process_single_board(
-                vis_all, frame, quad, slot, warp_size
-            )
-            if layout_info is not None:
-                layouts.append(layout_info)
-        else:
-            fallback_or_decay(slot, vis_all)
+    if boards_found:
+        quad = boards_found[0]["quad"]
+        board_state["last_quad"] = quad
+        board_state["miss"] = 0
+        ship_two_mask_show, ship_one_mask_show, layout_info = process_single_board(
+            vis_all, frame, quad, board_state, warp_size
+        )
+        if layout_info is not None:
+            layouts.append(layout_info)
+    else:
+        fallback_or_decay(board_state, vis_all)
 
     return (
         vis_all,
@@ -63,54 +60,6 @@ def process_all_boards(frame, boards_state_list, cam_mtx=None, dist=None, max_bo
         ammo_mask_show,
         layouts,
     )
-
-
-def _assign_detections_to_slots(boards_found, boards_state_list):
-    """
-    Empareja detecciones de tableros con los slots (T1, T2) por proximidad.
-    Así no cambian de nombre cuando el contorno baila.
-    """
-    assignments = {}
-    if not boards_found:
-        return assignments
-
-    # centros de detección
-    det_centers = []
-    for b in boards_found:
-        quad = b["quad"]
-        cx = np.mean(quad[:, 0])
-        cy = np.mean(quad[:, 1])
-        det_centers.append((cx, cy))
-
-    used = set()
-    for slot_idx, slot in enumerate(boards_state_list):
-        best_det = None
-        best_dist = 1e9
-
-        if slot["last_quad"] is not None:
-            sq = slot["last_quad"]
-            sx = np.mean(sq[:, 0])
-            sy = np.mean(sq[:, 1])
-            slot_center = (sx, sy)
-        else:
-            slot_center = None
-
-        for det_idx, (dx, dy) in enumerate(det_centers):
-            if det_idx in used:
-                continue
-            if slot_center is None:
-                best_det = det_idx
-                break
-            dist = ((dx - slot_center[0]) ** 2 + (dy - slot_center[1]) ** 2) ** 0.5
-            if dist < best_dist:
-                best_dist = dist
-                best_det = det_idx
-
-        if best_det is not None:
-            assignments[slot_idx] = best_det
-            used.add(best_det)
-
-    return assignments
 
 
 def process_single_board(vis_img, frame_bgr, quad, slot, warp_size=500):
@@ -134,7 +83,6 @@ def process_single_board(vis_img, frame_bgr, quad, slot, warp_size=500):
         dtype=np.float32,
     )
     H_warp = cv2.getPerspectiveTransform(src, dst)
-    H_inv = cv2.getPerspectiveTransform(dst, src)
     warp_img = cv2.warpPerspective(frame_bgr, H_warp, (warp_size, warp_size))
 
     ship_two_pts, ship_two_mask = object_tracker.detect_colored_points_in_board(
@@ -279,7 +227,7 @@ def _annotate_detections(vis_img, warp_img, slot_name, entries):
     if not entries:
         return
 
-    y_offset = 120 if slot_name == "T1" else 220
+    y_offset = 120
     for tag, label in entries:
         text = f"{slot_name}-{tag}: {label}"
         cv2.putText(
