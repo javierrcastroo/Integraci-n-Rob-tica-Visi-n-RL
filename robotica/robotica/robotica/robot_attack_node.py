@@ -48,6 +48,9 @@ class RobotAttackExecutor:
         self.attack_sub = rospy.Subscriber(
             "battleship/attack", String, self.attack_cb, queue_size=10
         )
+        self.board_request_pub = rospy.Publisher(
+            "battleship/board_request", String, queue_size=10
+        )
 
         rospy.loginfo(
             "[robot_attack_executor] Esperando ataques en 'battleship/attack' "
@@ -94,6 +97,10 @@ class RobotAttackExecutor:
         success = self.control.mover_a_pose(target_pose, wait=True)
         if not success:
             rospy.logwarn("[robot_attack_executor] No se pudo planificar el movimiento")
+            return
+
+        self.board_request_pub.publish(String("post_robot_attack"))
+        rospy.loginfo("[robot_attack_executor] Petición de captura enviada tras mover el robot")
 
 
 def main() -> None:

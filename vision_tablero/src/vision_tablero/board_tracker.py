@@ -11,9 +11,8 @@ SQUARE_SIZE_CM = 3.7
 DEFAULT_LOWER = np.array([5, 80, 80], dtype=np.uint8)
 DEFAULT_UPPER = np.array([25, 255, 255], dtype=np.uint8)
 
-# estos son los que vamos cambiando con 'b'
-current_lower = DEFAULT_LOWER.copy()
-current_upper = DEFAULT_UPPER.copy()
+# estos son los que vamos cambiando con 'b' (ahora pueden ser varios)
+current_ranges = [(DEFAULT_LOWER.copy(), DEFAULT_UPPER.copy())]
 
 
 def calibrate_board_color_from_roi(hsv_roi, p_low=5, p_high=95):
@@ -35,6 +34,16 @@ def calibrate_board_color_from_roi(hsv_roi, p_low=5, p_high=95):
     lower = np.array([h_lo, s_lo, v_lo], dtype=np.uint8)
     upper = np.array([h_hi, s_hi, v_hi], dtype=np.uint8)
     return lower, upper
+
+
+def _merge_masks(hsv_frame, ranges):
+    if not ranges:
+        return np.zeros(hsv_frame.shape[:2], dtype=np.uint8)
+
+    mask = np.zeros(hsv_frame.shape[:2], dtype=np.uint8)
+    for lower, upper in ranges:
+        mask = cv2.bitwise_or(mask, cv2.inRange(hsv_frame, lower, upper))
+    return mask
 
 
 def order_points(pts):
@@ -68,14 +77,14 @@ def detect_board(frame, camera_matrix=None, dist_coeffs=None):
     Versión original: devuelve un solo tablero.
     La dejamos por compatibilidad.
     """
-    global current_lower, current_upper
+    global current_ranges
 
     if camera_matrix is not None and dist_coeffs is not None:
         frame = cv2.undistort(frame, camera_matrix, dist_coeffs)
 
     vis = frame.copy()
     hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-    mask = cv2.inRange(hsv, current_lower, current_upper)
+    mask = _merge_masks(hsv, current_ranges)
     mask_show = mask.copy()
 
     kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (25, 25))
@@ -124,14 +133,14 @@ def detect_multiple_boards(frame, camera_matrix=None, dist_coeffs=None, max_boar
       boards     -> lista de dicts { 'quad':..., 'ratio':..., 'height_px':... }
       mask_show  -> máscara de color original
     """
-    global current_lower, current_upper
+    global current_ranges
 
     if camera_matrix is not None and dist_coeffs is not None:
         frame = cv2.undistort(frame, camera_matrix, dist_coeffs)
 
     vis = frame.copy()
     hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-    mask = cv2.inRange(hsv, current_lower, current_upper)
+    mask = _merge_masks(hsv, current_ranges)
     mask_show = mask.copy()
 
     kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (25, 25))
