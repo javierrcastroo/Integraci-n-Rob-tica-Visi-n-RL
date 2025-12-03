@@ -289,10 +289,8 @@ class BoardMainNode:
                 y0, y1 = sorted([bu.by_start, bu.by_end])
                 roi_hsv = cv2.cvtColor(frame[y0:y1, x0:x1], cv2.COLOR_BGR2HSV)
                 lo, up = object_tracker.calibrate_ship_two_color_from_roi(roi_hsv)
-                object_tracker.current_ship_two_ranges.append((lo, up))
-                print(
-                    f"[INFO] calibrado BARCO x2: {lo} {up} (rangos={len(object_tracker.current_ship_two_ranges)})"
-                )
+                object_tracker.current_ship_two_ranges = [(lo, up)]
+                print(f"[INFO] calibrado BARCO x2: {lo} {up}")
             else:
                 print("[WARN] dibuja ROI sobre el barco largo")
 
@@ -302,10 +300,8 @@ class BoardMainNode:
                 y0, y1 = sorted([bu.by_start, bu.by_end])
                 roi_hsv = cv2.cvtColor(frame[y0:y1, x0:x1], cv2.COLOR_BGR2HSV)
                 lo, up = object_tracker.calibrate_ship_one_color_from_roi(roi_hsv)
-                object_tracker.current_ship_one_ranges.append((lo, up))
-                print(
-                    f"[INFO] calibrado BARCO x1: {lo} {up} (rangos={len(object_tracker.current_ship_one_ranges)})"
-                )
+                object_tracker.current_ship_one_ranges = [(lo, up)]
+                print(f"[INFO] calibrado BARCO x2: {lo} {up}")
             else:
                 print("[WARN] dibuja ROI sobre el barco corto")
 
