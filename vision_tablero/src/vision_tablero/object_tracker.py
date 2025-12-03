@@ -18,17 +18,13 @@ AMMO_UPPER_DEFAULT = np.array([80, 255, 255], dtype=np.uint8)
 ORIG_LOWER_DEFAULT = np.array([90, 120, 80], dtype=np.uint8)   # azul por defecto
 ORIG_UPPER_DEFAULT = np.array([130, 255, 255], dtype=np.uint8)
 
-current_ship_two_lower = SHIP_TWO_LOWER_DEFAULT.copy()
-current_ship_two_upper = SHIP_TWO_UPPER_DEFAULT.copy()
+current_ship_two_ranges = [(SHIP_TWO_LOWER_DEFAULT.copy(), SHIP_TWO_UPPER_DEFAULT.copy())]
 
-current_ship_one_lower = SHIP_ONE_LOWER_DEFAULT.copy()
-current_ship_one_upper = SHIP_ONE_UPPER_DEFAULT.copy()
+current_ship_one_ranges = [(SHIP_ONE_LOWER_DEFAULT.copy(), SHIP_ONE_UPPER_DEFAULT.copy())]
 
-current_origin_lower = ORIG_LOWER_DEFAULT.copy()
-current_origin_upper = ORIG_UPPER_DEFAULT.copy()
+current_origin_ranges = [(ORIG_LOWER_DEFAULT.copy(), ORIG_UPPER_DEFAULT.copy())]
 
-current_ammo_lower = AMMO_LOWER_DEFAULT.copy()
-current_ammo_upper = AMMO_UPPER_DEFAULT.copy()
+current_ammo_ranges = [(AMMO_LOWER_DEFAULT.copy(), AMMO_UPPER_DEFAULT.copy())]
 
 
 def _calibrate_from_roi(hsv_roi, p_low=5, p_high=95, margin_h=3, margin_sv=20):
@@ -72,9 +68,17 @@ def calibrate_ammo_color_from_roi(hsv_roi):
     return _calibrate_from_roi(hsv_roi)
 
 
-def detect_colored_points_global(hsv_frame, lower, upper, max_objs=8, min_area=40):
+def _merge_masks(hsv_frame, ranges):
+    if not ranges:
+        return np.zeros(hsv_frame.shape[:2], dtype=np.uint8)
+
+    mask = np.zeros(hsv_frame.shape[:2], dtype=np.uint8)
+    for lower, upper in ranges:
+        mask = cv2.bitwise_or(mask, cv2.inRange(hsv_frame, lower, upper))
+    return mask
+def detect_colored_points_global(hsv_frame, ranges, max_objs=8, min_area=40):
     """Detecta blobs del color dado en todo el frame HSV."""
-    mask = cv2.inRange(hsv_frame, lower, upper)
+    mask = _merge_masks(hsv_frame, ranges)
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8), iterations=1)
     mask = keep_largest_components(mask, k=max_objs, min_area=min_area)
 
@@ -118,8 +122,7 @@ def keep_largest_components(mask, k=4, min_area=50):
     return new_mask
 
 
-def detect_colored_points_in_board(hsv_frame, board_quad, lower, upper,
-                                   max_objs=4, min_area=50):
+def detect_colored_points_in_board(hsv_frame, board_quad, ranges,
     """
     hsv_frame: frame del tablero en HSV
     board_quad: 4x2 float32 (tl,tr,br,bl)
@@ -129,8 +132,8 @@ def detect_colored_points_in_board(hsv_frame, board_quad, lower, upper,
       centers: lista de (x,y) en coordenadas de imagen
       mask: máscara de ese color (para debug)
     """
-    # 1) máscara por color
-    mask = cv2.inRange(hsv_frame, lower, upper)
+    # 1) máscara por color (puede venir de varios rangos)
+    mask = _merge_masks(hsv_frame, ranges)
 
     # 2) pequeña limpieza morfológica
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN,

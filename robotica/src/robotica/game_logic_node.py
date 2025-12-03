@@ -145,7 +145,7 @@ class GameLogicNode(object):
             rospy.logwarn(f"[game_logic_node] Error parseando ataque: {e}")
             return
 
-        self.request_board_layout("attack_received")
+        
 
         gestures = data.get("gestures", [])
         player = data.get("player", "P1")

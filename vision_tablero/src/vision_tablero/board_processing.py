@@ -29,8 +29,7 @@ def process_all_boards(frame, boards_state_list, cam_mtx=None, dist=None, max_bo
     frame_hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
     ammo_pts, ammo_mask_show = object_tracker.detect_colored_points_global(
         frame_hsv,
-        object_tracker.current_ammo_lower,
-        object_tracker.current_ammo_upper,
+        object_tracker.current_ammo_ranges,
         max_objs=12,
         min_area=30,
     )
@@ -141,8 +140,7 @@ def process_single_board(vis_img, frame_bgr, quad, slot, warp_size=500):
     ship_two_pts, ship_two_mask = object_tracker.detect_colored_points_in_board(
         hsv,
         quad,
-        object_tracker.current_ship_two_lower,
-        object_tracker.current_ship_two_upper,
+        object_tracker.current_ship_two_ranges,
         max_objs=2,
         min_area=40,
     )
@@ -150,8 +148,7 @@ def process_single_board(vis_img, frame_bgr, quad, slot, warp_size=500):
     ship_one_pts, ship_one_mask = object_tracker.detect_colored_points_in_board(
         hsv,
         quad,
-        object_tracker.current_ship_one_lower,
-        object_tracker.current_ship_one_upper,
+        object_tracker.current_ship_one_ranges,
         max_objs=3,
         min_area=40,
     )
