@@ -71,7 +71,7 @@ def draw_hand_box(img, mask):
 
 def draw_sequence_status(img, acciones, capture_state, pending, status_lines, progress):
     y = 100
-    seq_text = ", ".join(acciones) if acciones else "(vacía)"
+    seq_text = ", ".join(acciones) if acciones else "(vacia)"
     cv2.putText(img,
                 f"Secuencia (max 2): {seq_text}",
                 (10, y),

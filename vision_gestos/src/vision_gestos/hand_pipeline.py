@@ -92,7 +92,7 @@ class GestureSequenceManager:
 
     def __init__(
         self,
-        arm_label: str = "demonio",
+        arm_label: str = "5dedos",
         save_label: str = "cool",
         confirm_label: str = "ok",
         reject_label: str = "nook",
@@ -169,7 +169,7 @@ class GestureSequenceManager:
                     SequenceEvent(
                         kind="reset",
                         level="info",
-                        message="[INFO] Secuencia reiniciada, realiza 'demonio' para armar de nuevo.",
+                        message="[INFO] Secuencia reiniciada, realiza '5dedos' para armar de nuevo.",
                         reset_consensus=True,
                     )
                 )
@@ -312,7 +312,7 @@ class GestureSequenceManager:
                 SequenceEvent(
                     kind="warn",
                     level="warn",
-                    message="[WARN] Necesitas hacer el gesto 'demonio' antes de añadir gestos.",
+                    message="[WARN] Necesitas hacer el gesto '5dedos' antes de añadir gestos.",
                 )
             ]
         if self.action_count >= self.max_actions:
@@ -365,7 +365,7 @@ class GestureSequenceManager:
             SequenceEvent(
                 kind="reset",
                 level="info",
-                message="[INFO] Secuencia reiniciada, realiza 'demonio' para armar de nuevo.",
+                message="[INFO] Secuencia reiniciada, realiza '5dedos' para armar de nuevo.",
                 reset_consensus=True,
             )
         )

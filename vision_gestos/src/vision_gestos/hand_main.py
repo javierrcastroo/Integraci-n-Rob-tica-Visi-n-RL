@@ -29,13 +29,13 @@ from classifier import knn_predict
 from storage import save_gesture_example, load_gesture_gallery, save_sequence_json
 from collections import deque
 
-GESTURE_WINDOW_FRAMES = 800
+GESTURE_WINDOW_FRAMES = 300
 MAX_SEQUENCE_LENGTH = 2
-TRIGGER_GESTURES = {"demond", "demonio"}
+TRIGGER_GESTURE = "5dedos"
 CONFIRM_GESTURE = "ok"
 REJECT_GESTURE = "nook"
 PRINT_GESTURE = "cool"
-CONTROL_GESTURES = TRIGGER_GESTURES | {CONFIRM_GESTURE, REJECT_GESTURE, PRINT_GESTURE}
+CONTROL_GESTURES = TRIGGER_GESTURE | {CONFIRM_GESTURE, REJECT_GESTURE, PRINT_GESTURE}
 
 
 def majority_vote(labels):
@@ -218,7 +218,7 @@ def main():
 
         if resolved_label is not None:
             if capture_state == "STANDBY":
-                if resolved_label in TRIGGER_GESTURES:
+                if resolved_label == TRIGGER_GESTURE:
                     set_state("CAPTURA", ["Sistema activo: muestra el primer gesto."])
                 else:
                     set_status(["Sigue en standby, haz 'demond' para comenzar."])
