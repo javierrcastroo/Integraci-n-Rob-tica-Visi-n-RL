@@ -207,7 +207,7 @@ class GameLogicNode(object):
                     },
                     message="Ataque fuera del tablero detectado",
                 )
-                self.notify_rl_turn(player)
+                #self.notify_rl_turn(player)
                 return
 
         cell = (row_idx, col_idx)
@@ -225,7 +225,7 @@ class GameLogicNode(object):
                 },
                 message=f"Ataque repetido en {cell_name}",
             )
-            self.notify_rl_turn(player)
+            #self.notify_rl_turn(player)
             return
 
         # registramos impacto
@@ -279,7 +279,7 @@ class GameLogicNode(object):
             message=message,
         )
 
-        self.notify_rl_turn(player)
+        #self.notify_rl_turn(player)
 
     def rl_attack_cb(self, msg):
         """
