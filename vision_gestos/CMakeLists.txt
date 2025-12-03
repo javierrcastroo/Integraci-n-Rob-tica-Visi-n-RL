@@ -14,7 +14,6 @@ include_directories(
 )
 
 catkin_install_python(PROGRAMS
-  src/VC_Gesture/hand_camera_node.py
-  src/VC_Gesture/hand_node.py
+  src/vision_gestos/hand_main.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )

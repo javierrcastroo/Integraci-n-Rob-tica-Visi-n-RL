@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <package format="2">
-  <name>VC_Gesture</name>
+  <name>vision_gestos</name>
   <version>0.0.1</version>
   <description>The vision_gestos package</description>
 

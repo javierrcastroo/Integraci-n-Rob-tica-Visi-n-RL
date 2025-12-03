@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <package format="2">
-  <name>VC_Board</name>
+  <name>vision_tablero</name>
   <version>0.0.0</version>
   <description>The vision_tablero package</description>
 
