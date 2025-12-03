@@ -279,8 +279,7 @@ class BoardMainNode:
                 roi_hsv = cv2.cvtColor(frame[y0:y1, x0:x1], cv2.COLOR_BGR2HSV)
                 lo, up = board_tracker.calibrate_board_color_from_roi(roi_hsv)
                 board_tracker.current_ranges.append((lo, up))
-                print(
-                    f"[INFO] calibrado TABLERO: {lo} {up} (rangos={len(board_tracker.current_ranges)})"
+                print(f"[INFO] calibrado TABLERO: {lo} {up} (rangos={len(board_tracker.current_ranges)})")
             else:
                 print("[WARN] dibuja ROI en 'Tablero' primero")
 
