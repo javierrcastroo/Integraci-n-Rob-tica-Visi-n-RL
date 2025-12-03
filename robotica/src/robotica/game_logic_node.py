@@ -99,6 +99,20 @@ class GameLogicNode(object):
 
         rospy.loginfo("[game_logic_node] Iniciado. Esperando tablero y ataques...")
 
+    def notify_rl_turn(self, player):
+        """Asigna el turno al agente RL cuando el jugador 1 ha actuado."""
+        if player != "P1":
+            return
+
+        if not self.board_valid or self.current_layout is None:
+            return
+
+        if self.all_ship_cells.issubset(self.hits):
+            return
+
+        rospy.loginfo("[game_logic_node] Turno para el Player 2 (RL)")
+        self.rl_turn_pub.publish(Empty())
+
     # ---------- callback tablero ----------
     def board_cb(self, msg):
         try:
@@ -193,6 +207,7 @@ class GameLogicNode(object):
                     },
                     message="Ataque fuera del tablero detectado",
                 )
+                self.notify_rl_turn(player)
                 return
 
         cell = (row_idx, col_idx)
@@ -210,6 +225,7 @@ class GameLogicNode(object):
                 },
                 message=f"Ataque repetido en {cell_name}",
             )
+            self.notify_rl_turn(player)
             return
 
         # registramos impacto
@@ -228,6 +244,7 @@ class GameLogicNode(object):
                 },
                 message=f"Agua en {cell_name}",
             )
+            self.notify_rl_turn(player)
             return
 
         # impacto en algún barco
@@ -261,6 +278,8 @@ class GameLogicNode(object):
             },
             message=message,
         )
+
+        self.notify_rl_turn(player)
 
     def rl_attack_cb(self, msg):
         """
