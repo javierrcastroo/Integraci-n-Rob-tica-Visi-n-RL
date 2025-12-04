@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 # hand_main.py
+import sys
 import cv2
 import os
 import json
@@ -10,6 +11,7 @@ from sensor_msgs.msg import Image
 from cv_bridge import CvBridge, CvBridgeError
 from std_msgs.msg import String
 
+sys.path.append(os.path.join(os.path.dirname(__file__)))
 from hand_config import (
     PREVIEW_W, PREVIEW_H,
     RECOGNIZE_MODE,
