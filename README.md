@@ -35,9 +35,12 @@ roslaunch vision_gestos gesture.launch
 
 roslaunch vision_tablero board.launch
 
+roslaunch robotica robot_203.launch
+
 roslaunch robotica logic.launch
 
 roslaunch refuerzo rlModel.launch
+
 
 
 
