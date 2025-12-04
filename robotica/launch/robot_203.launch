@@ -38,8 +38,5 @@
   <!-- Convert joint states to /tf tranforms -->
   <node name="robot_state_publisher" pkg="robot_state_publisher" type="robot_state_publisher"/>
 
-  <rosparam file="$(find robotica)/config/poses.yaml" command="load" />
-  <node name="initial_position_mover" pkg="robotica" type="initial_position_node.py" output="screen" />
-
 </launch>
 
