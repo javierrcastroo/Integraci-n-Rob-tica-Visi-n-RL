@@ -2,16 +2,18 @@
 
 import sys
 import copy
+from typing import List
+
+import numpy as np
 import rospy
-from moveit_commander import MoveGroupCommander, RobotCommander, roscpp_initialize, PlanningSceneInterface
+from actionlib import SimpleActionClient
+from control_msgs.msg import GripperCommandAction, GripperCommandGoal, GripperCommandResult
+from geometry_msgs.msg import Pose, PoseStamped
 import moveit_msgs.msg
+from moveit_commander import MoveGroupCommander, RobotCommander, PlanningSceneInterface, roscpp_initialize
+from moveit_commander.conversions import pose_to_list
 from math import pi, tau, dist, fabs, cos
 from std_msgs.msg import String
-from moveit_commander.conversions import pose_to_list
-from typing import List
-from geometry_msgs.msg import Pose, PoseStamped
-from control_msgs.msg import GripperCommandAction, GripperCommandGoal, GripperCommandResult
-from actionlib import SimpleActionClient
 
 class ControlRobot:
     def __init__(self, *, init_ros_node: bool = True, node_name: str = "control_robot") -> None:
@@ -50,8 +52,8 @@ class ControlRobot:
         return pose_stamped
     
     def mover_a_pose(self, pose_goal: Pose, wait: bool=True) -> bool:
-        self.move_group.set_pose_target(pose_goal)
-        return self.move_group.go(wait=wait)
+        poses_intermedias = self._generar_puntos_intermedios(self.pose_actual(), pose_goal)
+        return self.mover_trayectoria(poses_intermedias, wait=wait)
     
     def añadir_caja_a_escena_de_planificacion(self, pose_caja: Pose, name: str,
                                   tamaño: tuple = (.1,.1,.1)) -> None:
@@ -62,20 +64,54 @@ class ControlRobot:
         self.scene.add_box(box_name, box_pose, size=tamaño)
 
     def mover_trayectoria(self, poses: List[Pose], wait: bool = True) -> bool:
-        poses_aux = copy.deepcopy(poses)
-        poses_aux.insert(0, self.pose_actual())
-            
-        (plan, fraction) = self.move_group.compute_cartesian_path(poses_aux, 0.01)
+        if not poses:
+            return True
+
+        trayecto_expandido: List[Pose] = []
+        pose_previa = self.pose_actual()
+
+        for pose_objetivo in poses:
+            trayecto_expandido.extend(
+                self._generar_puntos_intermedios(pose_previa, pose_objetivo)
+            )
+            pose_previa = pose_objetivo
+
+        trayecto_expandido.insert(0, self.pose_actual())
+
+        (plan, fraction) = self.move_group.compute_cartesian_path(trayecto_expandido, 0.01)
 
         if fraction != 1.0:
             return False
-        
+
         return self.move_group.execute(plan, wait=wait)
 
     def añadir_suelo(self) -> None:
         pose_suelo = Pose()
         pose_suelo.position.z = -0.026
         self.añadir_caja_a_escena_de_planificacion(pose_suelo,"suelo",(2,2,.05))
+
+    def _generar_puntos_intermedios(self, inicio: Pose, fin: Pose, pasos: int = 100) -> List[Pose]:
+        """Genera ``pasos`` poses entre ``inicio`` y ``fin`` usando numpy."""
+
+        inicio_pos = np.array([inicio.position.x, inicio.position.y, inicio.position.z], dtype=float)
+        fin_pos = np.array([fin.position.x, fin.position.y, fin.position.z], dtype=float)
+        desplazamiento = fin_pos - inicio_pos
+        distancia = np.linalg.norm(desplazamiento)
+
+        if distancia == 0:
+            return [copy.deepcopy(fin)]
+
+        fracciones = np.linspace(0.0, 1.0, pasos + 2)[1:]
+        poses_intermedias: List[Pose] = []
+
+        for fraccion in fracciones:
+            pose_intermedia = copy.deepcopy(inicio)
+            punto = inicio_pos + desplazamiento * fraccion
+            pose_intermedia.position.x, pose_intermedia.position.y, pose_intermedia.position.z = punto
+            pose_intermedia.orientation = fin.orientation
+            poses_intermedias.append(pose_intermedia)
+
+        return poses_intermedias
         
     def mover_pinza(self, anchura_dedos: float, fuerza: float) -> bool:
         goal = GripperCommandGoal()
