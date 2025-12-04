@@ -1,4 +1,6 @@
 <launch>
     <node pkg="robotica" type="game_logic_node.py" name="game_logic_node" output="screen" />
+    <rosparam file="$(find robotica)/config/poses.yaml" command="load" />
+    <node name="initial_position_mover" pkg="robotica" type="initial_position_node.py" output="screen" />
     <node pkg="robotica" type="robot_attack_node.py" name="robot_attack_node" output="screen" />
 </launch>
