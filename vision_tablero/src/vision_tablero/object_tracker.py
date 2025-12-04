@@ -122,7 +122,7 @@ def keep_largest_components(mask, k=4, min_area=50):
     return new_mask
 
 
-def detect_colored_points_in_board(hsv_frame, board_quad, ranges, max_objs = 4, min_area = 50)
+def detect_colored_points_in_board(hsv_frame, board_quad, ranges, max_objs = 4, min_area = 50):
     """
     hsv_frame: frame del tablero en HSV
     board_quad: 4x2 float32 (tl,tr,br,bl)
