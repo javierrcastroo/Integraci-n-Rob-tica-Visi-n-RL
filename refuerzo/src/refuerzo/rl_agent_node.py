@@ -7,6 +7,7 @@ import json
 import threading
 
 from std_msgs.msg import String, Empty
+from guess_board_gui import draw_guess_board 
 
 BOARD_SIZE = 5
 
@@ -16,6 +17,16 @@ model_stdout = None
 
 last_action = None
 fire_pub = None
+guess_window_name = "Guess Board"
+guess_board = np.zeros((BOARD_SIZE, BOARD_SIZE), dtype=np.int8)
+
+def update_gui():
+    """Redibuja el tablero de guess en la ventana."""
+    global guess_board, last_action
+
+    img = draw_guess_board(guess_board, last_shot=last_action)
+    cv2.imshow(guess_window_name, img)
+    cv2.waitKey(1)   # NO BLOQUEA
 
 
 # ------------------------- COORDS ----------------------
@@ -98,7 +109,7 @@ def your_turn_callback(_):
 
 
 def feedback_callback(msg):
-    global last_action
+    global guess_board, last_action, env
 
     if last_action is None:
         return
@@ -112,13 +123,21 @@ def feedback_callback(msg):
         "feedback": fb
     }) + "\n")
     model_stdin.flush()
-
-    if fb in ["tocado", "hundido"]:
+    if fb == "agua":
+        guess_board[row, col] = 1
+        rospy.loginfo("[refuerzo] Agua")
+    elif fb in ["tocado", "hundido"]:
+        guess_board[row, col] = 2
+        rospy.loginfo(f"[refuerzo] {fb.capitalize()} → turno extra")
         agent_fire()
     elif fb == "repetido":
+        rospy.loginfo(f"[refuerzo] Disparo Repetido → turno extra")
         agent_fire()
     elif fb == "victoria":
+        guess_board[row, col] = 2
+        rospy.loginfo("[refuerzo] ¡Victoria del agente!")
         reset_internal_state()
+    update_gui()
 
 
 def state_callback(msg):
@@ -128,20 +147,23 @@ def state_callback(msg):
 
 
 def reset_internal_state():
-    global last_action
+    global last_action, env, guess_board
+
+    env.reset()
+    guess_board[:] = 0
     last_action = None
-    model_stdin.write(json.dumps({"cmd": "reset"}) + "\n")
-    model_stdin.flush()
-    rospy.loginfo("[refuerzo] Estado reiniciado")
+    rospy.loginfo("[refuerzo] Estado interno reseteado para nueva partida")
+    update_gui()
 
 
 # ----------------------- MAIN -------------------------
 
 if __name__ == "__main__":
     rospy.init_node("rl_agent_node")
-
+    cv2.namedWindow(guess_window_name)
     start_rl_server()
-
+    update_gui()
+    
     fire_pub = rospy.Publisher("/agent/fire_coordinates", String, queue_size=10)
 
     rospy.Subscriber("/game/your_turn", Empty, your_turn_callback)
