@@ -76,16 +76,3 @@ def draw_guess_board(guess_board, last_shot=None, title="Guess Board"):
         cv2.rectangle(img, (x1, y1), (x2, y2), (0,255,255), 4)  # amarillo
 
     return img
-
-
-
-if __name__ == "__main__":
-    guess = np.zeros((5,5), dtype=np.int8)
-    guess[0,2] = 1   # miss
-    guess[3,1] = 2   # hit
-
-    img = draw_guess_board(guess, last_shot=(3,1))
-
-    cv2.imshow("Guess Board", img)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
