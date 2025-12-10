@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
+import os
+import sys
+sys.path.append(os.path.dirname(__file__))
 
+import numpy as np
+import cv2
 import rospy
 import rospkg
 import subprocess
@@ -7,7 +12,12 @@ import json
 import threading
 
 from std_msgs.msg import String, Empty
-from guess_board_gui import draw_guess_board 
+from board_visualizer import draw_guess_board
+
+
+# ============================================================
+# CONFIGURACIÓN INICIAL
+# ============================================================
 
 BOARD_SIZE = 5
 
@@ -18,27 +28,39 @@ model_stdout = None
 last_action = None
 fire_pub = None
 guess_window_name = "Guess Board"
+
+# Matriz interna que refleja cómo el agente "ve" el tablero
 guess_board = np.zeros((BOARD_SIZE, BOARD_SIZE), dtype=np.int8)
+
+
 
 def update_gui():
     """Redibuja el tablero de guess en la ventana."""
-    global guess_board, last_action
-
+    global last_action, guess_board
+    
     img = draw_guess_board(guess_board, last_shot=last_action)
     cv2.imshow(guess_window_name, img)
-    cv2.waitKey(1)   # NO BLOQUEA
+    cv2.waitKey(1)   # NO bloquea
 
 
-# ------------------------- COORDS ----------------------
+def gui_loop():
+    """Hilo dedicado a refrescar el tablero."""
+    global last_action, guess_board
+    
+    rate = rospy.Rate(15)  # 15 FPS
+    while not rospy.is_shutdown():
+        img = draw_guess_board(guess_board, last_shot=last_action)
+        cv2.imshow(guess_window_name, img)
+        cv2.waitKey(1)
+        rate.sleep()
+
 
 def index_to_coord(row, col):
     return f"{chr(ord('A') + row)}{col + 1}"
 
 
-#  STREAM STDERR DEL SERVIDOR refuerzo
-
 def stream_server_stderr(proc):
-    """Lee stderr del servidor refuerzo y lo vuelca al log de ROS."""
+    """Captura stderr del servidor RL en un hilo."""
     def _reader():
         for line in proc.stderr:
             rospy.loginfo("[refuerzo-SERVER] " + line.strip())
@@ -47,9 +69,8 @@ def stream_server_stderr(proc):
     th.start()
 
 
-# ------------------- INFERENCIA REMOTA -----------------
-
 def start_rl_server():
+    """Lanza rl_model_server.py dentro del venv_rl."""
     global model_proc, model_stdin, model_stdout
 
     rospack = rospkg.RosPack()
@@ -58,25 +79,28 @@ def start_rl_server():
     server = f"{pkg_path}/src/refuerzo/rl_model_server.py"
     model  = f"{pkg_path}/src/refuerzo/models/saved_models/best_model"
 
+    # Usar Python de venv_rl
     python = f"{pkg_path}/venv_rl/bin/python"
 
     model_proc = subprocess.Popen(
         [python, server, model],
-        stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE, text=True, bufsize=1
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        bufsize=1
     )
 
     model_stdin = model_proc.stdin
     model_stdout = model_proc.stdout
 
-    rospy.loginfo("[refuerzo] Servidor refuerzo lanzado.")
-    
-    # activar lectura async de errores
+    rospy.loginfo("[refuerzo] Servidor RL lanzado.")
+
     stream_server_stderr(model_proc)
-    
 
 
 def rl_predict():
+    """Envía {cmd: predict} al servidor RL y recibe row, col."""
     global model_stdin, model_stdout
 
     model_stdin.write(json.dumps({"cmd": "predict"}) + "\n")
@@ -88,8 +112,6 @@ def rl_predict():
     return data["row"], data["col"]
 
 
-# ------------------------ LÓGICA -----------------------
-
 def agent_fire():
     global last_action
 
@@ -98,78 +120,101 @@ def agent_fire():
 
     coord = index_to_coord(row, col)
     rospy.loginfo(f"[refuerzo] Disparo → {coord}")
+
     fire_pub.publish(coord)
 
+    update_gui()
 
-# --------------------- CALLBACKS ----------------------
+
 
 def your_turn_callback(_):
     rospy.loginfo("[refuerzo] Turno recibido")
     agent_fire()
 
 
+
 def feedback_callback(msg):
-    global guess_board, last_action, env
+    """Recibe feedback del GameLogic y actualiza guess_board + RL."""
+    global guess_board, last_action
 
     if last_action is None:
         return
 
     fb = msg.data.strip().lower()
+    row, col = last_action
 
+    # Notificar al servidor RL
     model_stdin.write(json.dumps({
         "cmd": "feedback",
-        "row": last_action[0],
-        "col": last_action[1],
+        "row": row,
+        "col": col,
         "feedback": fb
     }) + "\n")
     model_stdin.flush()
+
+    # Actualización del tablero local
     if fb == "agua":
         guess_board[row, col] = 1
         rospy.loginfo("[refuerzo] Agua")
+
     elif fb in ["tocado", "hundido"]:
         guess_board[row, col] = 2
         rospy.loginfo(f"[refuerzo] {fb.capitalize()} → turno extra")
         agent_fire()
+
     elif fb == "repetido":
-        rospy.loginfo(f"[refuerzo] Disparo Repetido → turno extra")
+        rospy.loginfo("[refuerzo] Disparo repetido → turno extra")
         agent_fire()
+
     elif fb == "victoria":
         guess_board[row, col] = 2
         rospy.loginfo("[refuerzo] ¡Victoria del agente!")
         reset_internal_state()
+
     update_gui()
 
 
+
 def state_callback(msg):
+    """Detecta victoria de humano o agente."""
     state = msg.data.strip().lower()
+
     if "win" in state:
         reset_internal_state()
 
 
-def reset_internal_state():
-    global last_action, env, guess_board
 
-    env.reset()
+def reset_internal_state():
+    """Reinicio completo del estado interno del agente RL."""
+    global last_action, guess_board
+
     guess_board[:] = 0
     last_action = None
-    rospy.loginfo("[refuerzo] Estado interno reseteado para nueva partida")
+
+    model_stdin.write(json.dumps({"cmd": "reset"}) + "\n")
+    model_stdin.flush()
+
+    rospy.loginfo("[refuerzo] Estado interno reseteado")
+
     update_gui()
 
 
-# ----------------------- MAIN -------------------------
 
 if __name__ == "__main__":
     rospy.init_node("rl_agent_node")
+
     cv2.namedWindow(guess_window_name)
+
+    # Lanzar modelo RL en venv_rl
     start_rl_server()
-    update_gui()
-    
+
     fire_pub = rospy.Publisher("/agent/fire_coordinates", String, queue_size=10)
 
     rospy.Subscriber("/game/your_turn", Empty, your_turn_callback)
     rospy.Subscriber("/game/feedback", String, feedback_callback)
     rospy.Subscriber("/game/state", String, state_callback)
 
+    threading.Thread(target=gui_loop, daemon=True).start()
+
     rospy.loginfo("[refuerzo] Nodo iniciado. Esperando turnos...")
     rospy.spin()
-
