@@ -51,9 +51,36 @@ class ControlRobot:
         pose_stamped.pose = pose
         return pose_stamped
     
-    def mover_a_pose(self, pose_goal: Pose, wait: bool=True) -> bool:
-        poses_intermedias = self._generar_puntos_intermedios(self.pose_actual(), pose_goal)
-        return self.mover_trayectoria(poses_intermedias, wait=wait)
+    def mover_a_pose(self, pose_goal: Pose, wait: bool = True) -> bool:
+        """
+        Mueve el robot a una pose objetivo usando la planificación estándar de MoveIt
+        (no trayectoria cartesiana).
+
+        Devuelve True si la ejecución ha sido correcta.
+        """
+        # Aseguramos que el estado inicial es el actual
+        self.move_group.set_start_state_to_current_state()
+        self.move_group.set_pose_target(pose_goal)
+
+        plan = self.move_group.plan()
+
+        # plan puede ser una tupla o un objeto, según versión; comprobamos que tenga puntos
+        try:
+            trajectory = plan[1] if isinstance(plan, tuple) else plan
+        except Exception:
+            trajectory = plan
+
+        if not trajectory or not hasattr(trajectory, "joint_trajectory") \
+        or not trajectory.joint_trajectory.points:
+            rospy.logerr("[ControlRobot] No se ha podido planificar una trayectoria a la pose objetivo.")
+            self.move_group.clear_pose_targets()
+            return False
+
+        success = self.move_group.execute(trajectory, wait=wait)
+        self.move_group.stop()
+        self.move_group.clear_pose_targets()
+
+        return bool(success)
     
     def añadir_caja_a_escena_de_planificacion(self, pose_caja: Pose, name: str,
                                   tamaño: tuple = (.1,.1,.1)) -> None:
