@@ -15,10 +15,6 @@ from std_msgs.msg import String, Empty
 from board_visualizer import draw_guess_board
 
 
-# ============================================================
-# CONFIGURACIÓN INICIAL
-# ============================================================
-
 BOARD_SIZE = 5
 
 model_proc = None
