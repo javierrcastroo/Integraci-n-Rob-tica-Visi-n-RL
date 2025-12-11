@@ -99,13 +99,40 @@ def rl_predict():
     """Envía {cmd: predict} al servidor RL y recibe row, col."""
     global model_stdin, model_stdout
 
+    # Pedimos predicción
     model_stdin.write(json.dumps({"cmd": "predict"}) + "\n")
     model_stdin.flush()
 
-    resp = model_stdout.readline()
-    data = json.loads(resp)
+    while True:
+        resp = model_stdout.readline().strip()
+        if not resp:
+            continue
 
-    return data["row"], data["col"]
+        # 1. Debe empezar por '{'
+        if not resp.startswith("{"):
+            rospy.logwarn(f"[refuerzo] Ignorando línea no JSON: '{resp}'")
+            continue
+
+        # 2. Intentar parsear como JSON
+        try:
+            data = json.loads(resp)
+        except json.JSONDecodeError:
+            rospy.logwarn(f"[refuerzo] Línea JSON inválida: '{resp}'")
+            continue
+
+        # 3. Validar campos obligatorios
+        if "row" not in data or "col" not in data:
+            rospy.logwarn(f"[refuerzo] JSON sin row/col: {data}")
+            continue
+
+        try:
+            row = int(data["row"])
+            col = int(data["col"])
+        except:
+            rospy.logwarn(f"[refuerzo] row/col no son enteros: {data}")
+            continue
+            
+        return row, col
 
 
 def agent_fire():
@@ -120,7 +147,6 @@ def agent_fire():
     fire_pub.publish(coord)
 
     update_gui()
-
 
 
 def your_turn_callback(_):
