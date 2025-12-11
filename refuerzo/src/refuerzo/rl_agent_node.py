@@ -184,7 +184,7 @@ def feedback_callback(msg):
         rospy.loginfo(f"[refuerzo] {fb.capitalize()} → turno extra")
         agent_fire()
 
-    elif fb == "repetido":
+    elif fb == "repeated":
         rospy.loginfo("[refuerzo] Disparo repetido → turno extra")
         agent_fire()
 
