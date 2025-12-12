@@ -65,8 +65,11 @@ for line in sys.stdin:
         row = data["row"]
         col = data["col"]
         fb  = data["feedback"]
-
-        env.update_from_feedback((row, col), fb)
+        
+        if fb == "repetido":
+            continue
+            
+        env._update_from_feedback((row, col), fb)
 
     # RESET DESDE ROS
     elif cmd == "reset":
