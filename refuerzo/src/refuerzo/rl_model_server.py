@@ -65,9 +65,6 @@ for line in sys.stdin:
         row = data["row"]
         col = data["col"]
         fb  = data["feedback"]
-        
-        if fb == "repetido":
-            continue
             
         env._update_from_feedback((row, col), fb)
 
