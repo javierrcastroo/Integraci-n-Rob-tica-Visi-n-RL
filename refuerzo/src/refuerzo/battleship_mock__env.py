@@ -92,6 +92,9 @@ class BattleshipMockROSEnv(Env):
         """
         row, col = last_action
 
+        if self.guess_board[row, col] != 0:
+            return # Solo acciones no observadas previamente (repetidos)
+
         if fb == "agua":
             self.guess_board[row, col] = 1   # MISS
         else:
