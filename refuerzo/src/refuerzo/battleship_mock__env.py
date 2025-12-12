@@ -84,7 +84,7 @@ class BattleshipMockROSEnv(Env):
         return obs, reward, terminated, truncated, info
 
     # Para sincronizar con ROS
-    def update_from_feedback(self, last_action, fb):
+    def _update_from_feedback(self, last_action, fb):
         """
         Actualiza guess_board en función del feedback ROS.
         last_action = (row, col)
