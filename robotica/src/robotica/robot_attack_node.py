@@ -6,9 +6,21 @@ mover el brazo solo cuando la jugada es válida. Además, proyecta los barcos
 recibidos en ``battleship/board_layout`` como obstáculos en la escena de
 planificación de MoveIt para evitar colisiones.
 
+*Nota rápida*: ``TF`` es la librería de ROS que mantiene las transformaciones
+entre sistemas de referencia (frames). Para saber dónde está el ArUco respecto
+al robot debe existir en TF una cadena completa desde ``base_link`` hasta el
+``aruco_frame`` (p. ej., ``base_link -> cámara -> aruco_frame``). Si ese
+transform está disponible, el nodo calcula las coordenadas en el marco del
+robot automáticamente; si no, usa los parámetros manuales de origen.
+
 Parámetros relevantes:
 
-- ``~board_origin_x`` y ``~board_origin_y``: coordenadas de la celda (0,0).
+- ``~use_aruco_origin`` y ``~aruco_frame``: si ``use_aruco_origin`` es True,
+  intenta tomar ``(x, y)`` del marcador ArUco detectado en TF.
+- ``~aruco_origin_x`` y ``~aruco_origin_y``: alternativa manual para fijar
+  ``(x, y)`` del ArUco respecto a ``base_link`` si no hay TF disponible.
+- ``~board_origin_x`` y ``~board_origin_y``: coordenadas de la celda (0,0)
+  solo si no se puede leer el ArUco.
 - ``~cell_size``: tamaño de cada celda.
 - ``~hover_z``: altura de aproximación al atacar.
 - ``~board_surface_z``: altura del plano del tablero para colocar obstáculos.
@@ -20,6 +32,7 @@ import json
 from typing import Iterable, List, Optional, Sequence, Set, Tuple
 
 import rospy
+import tf
 from geometry_msgs.msg import Pose
 from std_msgs.msg import String
 
@@ -33,9 +46,15 @@ class RobotAttackExecutor:
     def __init__(self) -> None:
         rospy.init_node("robot_attack_executor", anonymous=True)
 
-        self.origin_x = rospy.get_param("~board_origin_x", 0.3)
+        self.use_aruco_origin = rospy.get_param("~use_aruco_origin", True)
+        self.aruco_frame = rospy.get_param("~aruco_frame", "aruco_marker")
+        # Coordenadas del ArUco respecto a base_link si no se quiere/puede usar TF.
+        self.aruco_origin_x = rospy.get_param("~aruco_origin_x", None)
+        self.aruco_origin_y = rospy.get_param("~aruco_origin_y", None)
+        self.origin_x = rospy.get_param("~board_origin_x", 0.0)
         self.origin_y = rospy.get_param("~board_origin_y", 0.0)
-        self.cell_size = rospy.get_param("~cell_size", 0.05)
+        # Por defecto usamos el mismo tamaño de casilla que estima board_tracker: 3.7 cm.
+        self.cell_size = rospy.get_param("~cell_size", 0.037)
         self.hover_z = rospy.get_param("~hover_z", 0.15)
         self.board_surface_z = rospy.get_param("~board_surface_z", 0.0)
         self.ship_box_size = rospy.get_param("~ship_box_size", 0.025)
@@ -43,6 +62,9 @@ class RobotAttackExecutor:
 
         # Reutilizamos ControlRobot sin re-inicializar el nodo ROS.
         self.control = ControlRobot(init_ros_node=False)
+        self.tf_listener = tf.TransformListener()
+
+        self._resolve_board_origin()
 
         self.attack_result_sub = rospy.Subscriber(
             "battleship/attack_result", String, self.attack_result_cb, queue_size=10
@@ -61,11 +83,53 @@ class RobotAttackExecutor:
 
         rospy.loginfo(
             "[robot_attack_executor] Esperando resultados en 'battleship/attack_result' "
-            "(origen=(%.3f, %.3f), paso=%.3f, z=%.3f)",
+            "(origen=(%.3f, %.3f) via %s, paso=%.3f, z=%.3f)",
             self.origin_x,
             self.origin_y,
+            "TF" if self.use_aruco_origin else "param",
             self.cell_size,
             self.hover_z,
+        )
+
+    def _resolve_board_origin(self) -> None:
+        if self.use_aruco_origin:
+            try:
+                self.tf_listener.waitForTransform(
+                    "base_link", self.aruco_frame, rospy.Time(0), rospy.Duration(2.0)
+                )
+                trans, _rot = self.tf_listener.lookupTransform(
+                    "base_link", self.aruco_frame, rospy.Time(0)
+                )
+                self.origin_x = float(trans[0])
+                self.origin_y = float(trans[1])
+                rospy.loginfo(
+                    "[robot_attack_executor] Origen de tablero fijado desde %s: (%.3f, %.3f)",
+                    self.aruco_frame,
+                    self.origin_x,
+                    self.origin_y,
+                )
+                return
+            except Exception as exc:
+                rospy.logwarn(
+                    "[robot_attack_executor] No se pudo leer TF base_link -> %s (¿publicas cámara/base_link?). Error: %s",
+                    self.aruco_frame,
+                    exc,
+                )
+
+            if self.aruco_origin_x is not None and self.aruco_origin_y is not None:
+                self.origin_x = float(self.aruco_origin_x)
+                self.origin_y = float(self.aruco_origin_y)
+                rospy.loginfo(
+                    "[robot_attack_executor] Origen de tablero fijado desde parámetros de ArUco: (%.3f, %.3f)",
+                    self.origin_x,
+                    self.origin_y,
+                )
+                return
+
+        rospy.loginfo(
+            "[robot_attack_executor] Origen de tablero configurado por parámetros: (%.3f, %.3f)",
+            self.origin_x,
+            self.origin_y,
         )
 
     def attack_result_cb(self, msg: String) -> None:
