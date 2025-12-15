@@ -8,6 +8,8 @@ chmod +x src/robotica/src/robotica/game_logic_node.py
 
 chmod +x src/robotica/src/robotica/robot_attack_node.py
 
+chmod +x src/robotica/src/robotica/move_to_pose_aruco.py
+
 chmod +x src/refuerzo/src/refuerzo/rl_agent_node.py
 
 (abrá mas)
@@ -40,6 +42,7 @@ roslaunch robotica robot_203.launch
 roslaunch robotica logic.launch
 
 roslaunch refuerzo rlModel.launch
+
 
 
 
