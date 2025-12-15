@@ -34,7 +34,14 @@ class BattleshipMockROSEnv(Env):
         self.guess_board = np.zeros((board_size, board_size), np.int8)
         self.own_board = np.zeros((board_size, board_size), np.int8)
 
-    # --------- helpers internos usados por el nodo ---------
+    def _mark_diagonals_as_miss(self, y, x):
+        """Marca como MISS (1) las diagonales alrededor de un hit."""
+        diag_offsets = [(-1,-1), (-1,1), (1,-1), (1,1)]
+        for dy, dx in diag_offsets:
+            ny, nx = y + dy, x + dx
+            if 0 <= ny < self.board_size and 0 <= nx < self.board_size:
+                if self.guess_board[ny, nx] == 0:
+                    self.guess_board[ny, nx] = 1
 
     def _obs(self):
         guess_flat = self.guess_board.flatten().astype(np.float32)
@@ -55,7 +62,6 @@ class BattleshipMockROSEnv(Env):
         """
         return (self.guess_board == 0).flatten()
 
-    # --------- API Gymnasium ---------
 
     def reset(self, seed=None, options=None):
         if seed is not None:
@@ -77,9 +83,8 @@ class BattleshipMockROSEnv(Env):
         info = {"action_mask": self._valid_action_mask()}
         return obs, reward, terminated, truncated, info
 
-    # --------- para sincronizar con ROS ---------
-
-    def update_from_feedback(self, last_action, fb):
+    # Para sincronizar con ROS
+    def _update_from_feedback(self, last_action, fb):
         """
         Actualiza guess_board en función del feedback ROS.
         last_action = (row, col)
@@ -87,7 +92,11 @@ class BattleshipMockROSEnv(Env):
         """
         row, col = last_action
 
+        if self.guess_board[row, col] != 0:
+            return # Solo acciones no observadas previamente (repetidos)
+
         if fb == "agua":
             self.guess_board[row, col] = 1   # MISS
         else:
             self.guess_board[row, col] = 2   # HIT (tocado/hundido/victoria)
+            self._mark_diagonals_as_miss(row, col)
