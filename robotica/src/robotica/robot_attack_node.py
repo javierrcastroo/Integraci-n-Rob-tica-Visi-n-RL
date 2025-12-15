@@ -9,9 +9,11 @@ import json
 import math
 from typing import Iterable, List, Optional, Sequence, Set, Tuple
 
+import numpy as np
 import rospy
 from geometry_msgs.msg import Pose
 from std_msgs.msg import String
+from tf.transformations import euler_from_quaternion, quaternion_inverse, quaternion_matrix
 
 from control_robot import ControlRobot
 
@@ -29,6 +31,9 @@ class RobotAttackExecutor:
 
         # Yaw del tablero/aruco respecto a base_link (rad). 0.0 => sin rotación.
         self.aruco_yaw = float(rospy.get_param("~aruco_yaw", 0.0))
+
+        # Carga inicial del ArUco desde poseAruco.yaml (parámetro Pose_Actual)
+        self._load_aruco_pose_from_param()
 
         # Si tu (0,0) del tablero NO coincide con el centro del ArUco, añade offsets:
         # (por defecto 0.0, 0.0)
@@ -94,6 +99,64 @@ class RobotAttackExecutor:
         x_base = self.aruco_origin_x + (c * x_local - s * y_local)
         y_base = self.aruco_origin_y + (s * x_local + c * y_local)
         return x_base, y_base
+
+    def _load_aruco_pose_from_param(self) -> None:
+        """Carga la pose inicial del ArUco desde ``Pose_Actual``.
+
+        El fichero ``poseAruco.yaml`` se carga en el parámetro ``Pose_Actual``.
+        Se usa su ``position`` como traslación del ArUco respecto a ``base_link``
+        y se extrae el yaw de su orientación para las rotaciones del tablero.
+        """
+
+        pose_param = rospy.get_param("Pose_Actual", None)
+        if not isinstance(pose_param, dict):
+            rospy.logwarn(
+                "[robot_attack_executor] No se encontró Pose_Actual en parámetros, se usan valores por defecto"
+            )
+            return
+
+        pose_dict = pose_param.get("pose", {})
+        pos_dict = pose_dict.get("position", {})
+        ori_dict = pose_dict.get("orientation", {})
+
+        try:
+            t_robot_in_aruco = np.array(
+                [
+                    float(pos_dict.get("x", 0.0)),
+                    float(pos_dict.get("y", 0.0)),
+                    float(pos_dict.get("z", 0.0)),
+                ]
+            )
+
+            quat_aruco_to_robot = [
+                float(ori_dict.get("x", 0.0)),
+                float(ori_dict.get("y", 0.0)),
+                float(ori_dict.get("z", 0.0)),
+                float(ori_dict.get("w", 1.0)),
+            ]
+
+            rotation_matrix = quaternion_matrix(quat_aruco_to_robot)[:3, :3]
+            t_aruco_in_robot = -rotation_matrix.T @ t_robot_in_aruco
+
+            quat_robot_to_aruco = quaternion_inverse(quat_aruco_to_robot)
+            _, _, yaw = euler_from_quaternion(quat_robot_to_aruco)
+
+            self.aruco_origin_x = float(t_aruco_in_robot[0])
+            self.aruco_origin_y = float(t_aruco_in_robot[1])
+            self.aruco_yaw = yaw
+        except Exception as exc:
+            rospy.logwarn(
+                "[robot_attack_executor] No se pudo triangular Pose_Actual, se mantienen valores previos (error: %s)",
+                exc,
+            )
+            return
+
+        rospy.loginfo(
+            "[robot_attack_executor] Pose del ArUco triangulada: (x=%.3f, y=%.3f, yaw=%.3f)",
+            self.aruco_origin_x,
+            self.aruco_origin_y,
+            self.aruco_yaw,
+        )
 
     def _cell_to_hover_pose(self, cell: Cell) -> Pose:
         # Coordenadas de celda en frame del tablero (convención: col->X, row->Y)
