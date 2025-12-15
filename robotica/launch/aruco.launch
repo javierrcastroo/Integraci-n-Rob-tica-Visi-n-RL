@@ -1,0 +1,10 @@
+<launch>
+    <!-- Cargamos la pose cartesiana desde el YAML -->
+    <rosparam file="$(find robotica)/config/poseAruco.yaml" command="load" />
+
+    <!-- Nodo que mueve el robot a la Pose_Actual -->
+    <node name="move_to_pose_aruco"
+          pkg="robotica"
+          type="move_to_pose_aruco.py"
+          output="screen" />
+</launch>
