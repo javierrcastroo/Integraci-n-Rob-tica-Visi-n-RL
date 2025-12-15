@@ -31,13 +31,15 @@ rospack list | grep -E "vision_gestos|vision_tablero|refuerzo|robotica"
 
 ---------------------------------------------------------------------------------------------
 
+roslaunch robotica robot_203.launch
+
+roslaunch robotica aruco.launch
+
 roslaunch robotica sistema.launch
 
 roslaunch vision_gestos gesture.launch
 
 roslaunch vision_tablero board.launch
-
-roslaunch robotica robot_203.launch
 
 roslaunch robotica logic.launch
 
