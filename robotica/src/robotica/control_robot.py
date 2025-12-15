@@ -122,9 +122,15 @@ class ControlRobot:
 
         trayecto_expandido.insert(0, inicio_trayectoria)
 
-        (plan, fraction) = self.move_group.compute_cartesian_path(trayecto_expandido, 0.01)
+        self.move_group.set_start_state_to_current_state()
+        (plan, fraction) = self.move_group.compute_cartesian_path(
+            trayecto_expandido, 0.01, 0.0
+        )
 
         if fraction != 1.0:
+            rospy.logwarn(
+                "[ControlRobot] compute_cartesian_path incompleto (fraction=%.3f)", fraction
+            )
             return False
 
         return self.move_group.execute(plan, wait=wait)
