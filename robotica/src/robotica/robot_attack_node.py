@@ -228,7 +228,9 @@ class RobotAttackExecutor:
             target_pose.position.z,
         )
 
-        success = self.control.mover_trayectoria([target_pose], wait=True)
+        success = self.control.mover_trayectoria(
+            [target_pose], wait=True, pasos=200, z_constante=target_pose.position.z
+        )
         if not success:
             rospy.logwarn("[robot_attack_executor] No se pudo planificar el movimiento lineal")
             return

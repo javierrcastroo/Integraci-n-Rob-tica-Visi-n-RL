@@ -2,7 +2,7 @@
 
 import sys
 import copy
-from typing import List
+from typing import List, Optional
 
 import numpy as np
 import rospy
@@ -90,20 +90,37 @@ class ControlRobot:
         box_name = name
         self.scene.add_box(box_name, box_pose, size=tamaño)
 
-    def mover_trayectoria(self, poses: List[Pose], wait: bool = True) -> bool:
+    def mover_trayectoria(
+        self,
+        poses: List[Pose],
+        wait: bool = True,
+        pasos: int = 100,
+        z_constante: Optional[float] = None,
+    ) -> bool:
         if not poses:
             return True
 
         trayecto_expandido: List[Pose] = []
-        pose_previa = self.pose_actual()
+        inicio_trayectoria = copy.deepcopy(self.pose_actual())
+        pose_previa = copy.deepcopy(inicio_trayectoria)
+
+        if z_constante is not None:
+            pose_previa.position.z = z_constante
+            inicio_trayectoria.position.z = z_constante
 
         for pose_objetivo in poses:
+            if z_constante is not None:
+                pose_objetivo = copy.deepcopy(pose_objetivo)
+                pose_objetivo.position.z = z_constante
+
             trayecto_expandido.extend(
-                self._generar_puntos_intermedios(pose_previa, pose_objetivo)
+                self._generar_puntos_intermedios(
+                    pose_previa, pose_objetivo, pasos=pasos
+                )
             )
             pose_previa = pose_objetivo
 
-        trayecto_expandido.insert(0, self.pose_actual())
+        trayecto_expandido.insert(0, inicio_trayectoria)
 
         (plan, fraction) = self.move_group.compute_cartesian_path(trayecto_expandido, 0.01)
 
