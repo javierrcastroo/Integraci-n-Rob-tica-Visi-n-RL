@@ -32,10 +32,13 @@ class LayoutAccumulator:
                 "board_size": None,
                 "ship_two_counts": Counter(),
                 "ship_one_counts": Counter(),
+                "ammo_counts": Counter(),
                 "ship_two_offsets": defaultdict(list),
                 "ship_one_offsets": defaultdict(list),
+                "ammo_offsets": defaultdict(list),
                 "ship_two_pixels": defaultdict(list),
                 "ship_one_pixels": defaultdict(list),
+                "ammo_pixels": defaultdict(list),
             }
         )
 
@@ -52,6 +55,8 @@ class LayoutAccumulator:
                 entry["ship_two_counts"][tuple(cell)] += 1
             for cell in layout.get("ship_one_cells", []):
                 entry["ship_one_counts"][tuple(cell)] += 1
+            for cell in layout.get("ammo_cells", []):
+                entry["ammo_counts"][tuple(cell)] += 1
 
             for det in layout.get("ship_two_detections", []):
                 cell = det.get("cell")
@@ -77,6 +82,18 @@ class LayoutAccumulator:
                 if offset is not None:
                     entry["ship_one_offsets"][cell].append(tuple(offset))
 
+            for det in layout.get("ammo_detections", []):
+                cell = det.get("cell")
+                if cell is None:
+                    continue
+                cell = tuple(cell)
+                pixel = det.get("pixel")
+                offset = det.get("offset_from_origin")
+                if pixel is not None:
+                    entry["ammo_pixels"][cell].append(tuple(pixel))
+                if offset is not None:
+                    entry["ammo_offsets"][cell].append(tuple(offset))
+
     def progress(self):
         if self.target_frames <= 0:
             return 1.0
@@ -93,12 +110,14 @@ class LayoutAccumulator:
         n = float(len(pts))
         return (sx / n, sy / n)
 
-    def _cells_with_type(self, ship_two_cells, ship_one_cells):
+    def _cells_with_type(self, ship_two_cells, ship_one_cells, ammo_cells):
         cells = []
         for r, c in ship_two_cells:
             cells.append({"row": r, "col": c, "type": "ship_two"})
         for r, c in ship_one_cells:
             cells.append({"row": r, "col": c, "type": "ship_one"})
+        for r, c in ammo_cells:
+            cells.append({"row": r, "col": c, "type": "ammo"})
         return cells
 
     def build_layouts(self):
@@ -111,6 +130,9 @@ class LayoutAccumulator:
             ]
             ship_one_cells = [
                 cell for cell, count in entry["ship_one_counts"].items() if count >= threshold
+            ]
+            ammo_cells = [
+                cell for cell, count in entry["ammo_counts"].items() if count >= threshold
             ]
 
             ship_two_positions = []
@@ -137,14 +159,28 @@ class LayoutAccumulator:
                     }
                 )
 
+            ammo_positions = []
+            for cell in ammo_cells:
+                ammo_positions.append(
+                    {
+                        "cell": cell,
+                        "mean_pixel": self._average_point(entry["ammo_pixels"].get(cell, [])),
+                        "mean_offset_from_origin": self._average_point(
+                            entry["ammo_offsets"].get(cell, [])
+                        ),
+                    }
+                )
+
             layout = {
                 "name": name,
                 "board_size": entry["board_size"],
                 "ship_two_cells": sorted(ship_two_cells),
                 "ship_one_cells": sorted(ship_one_cells),
-                "cells": self._cells_with_type(ship_two_cells, ship_one_cells),
+                "ammo_cells": sorted(ammo_cells),
+                "cells": self._cells_with_type(ship_two_cells, ship_one_cells, ammo_cells),
                 "ship_two_positions": ship_two_positions,
                 "ship_one_positions": ship_one_positions,
+                "ammo_positions": ammo_positions,
             }
             layouts.append(layout)
 
