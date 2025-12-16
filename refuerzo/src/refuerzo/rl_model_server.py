@@ -50,6 +50,7 @@ for line in sys.stdin:
 
         action, _ = model.predict(obs, action_masks=mask, deterministic=True)
         print(f"---->[ACCION]: {action} | mask[action]={mask[action]}", file=sys.stderr)
+        print(f"---->[MASK]: {mask}", file=sys.stderr)
         
         row = action // env.board_size
         col = action % env.board_size
