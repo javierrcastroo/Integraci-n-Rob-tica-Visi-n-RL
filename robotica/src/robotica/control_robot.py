@@ -36,6 +36,13 @@ class ControlRobot:
         self.gripper_action_client = SimpleActionClient("rg2_action_server", GripperCommandAction)
         self.añadir_suelo()
 
+        # Parámetros para hacer la planificación más robusta
+        self.move_group.allow_replanning(True)
+        self.move_group.set_num_planning_attempts(10)
+        self.move_group.set_planning_time(10.0)
+        self.move_group.set_max_acceleration_scaling_factor(0.6)
+        self.move_group.set_max_velocity_scaling_factor(0.8)
+
     def articulaciones_actuales(self) -> list:
         return self.move_group.get_current_joint_values()
     
@@ -96,6 +103,8 @@ class ControlRobot:
         wait: bool = True,
         pasos: int = 100,
         z_constante: Optional[float] = None,
+        eef_step: float = 0.01,
+        intentos: int = 3,
     ) -> bool:
         if not poses:
             return True
@@ -122,18 +131,51 @@ class ControlRobot:
 
         trayecto_expandido.insert(0, inicio_trayectoria)
 
-        self.move_group.set_start_state_to_current_state()
-        (plan, fraction) = self.move_group.compute_cartesian_path(
-            trayecto_expandido, 0.01, 0.0
-        )
-
-        if fraction != 1.0:
-            rospy.logwarn(
-                "[ControlRobot] compute_cartesian_path incompleto (fraction=%.3f)", fraction
+        for intento in range(intentos):
+            self.move_group.set_start_state_to_current_state()
+            paso_ef = eef_step * (0.5 ** intento)
+            (plan, fraction) = self.move_group.compute_cartesian_path(
+                trayecto_expandido, paso_ef, 0.0
             )
-            return False
 
-        return self.move_group.execute(plan, wait=wait)
+            if fraction == 1.0:
+                return self.move_group.execute(plan, wait=wait)
+
+            rospy.logwarn(
+                "[ControlRobot] compute_cartesian_path incompleto (fraction=%.3f, eef_step=%.4f); reintentando",
+                fraction,
+                paso_ef,
+            )
+
+        rospy.logerr(
+            "[ControlRobot] No se pudo planificar trayecto cartesiano tras %s intentos",
+            intentos,
+        )
+        return False
+
+    def mover_en_linea_recta(
+        self,
+        pose_objetivo: Pose,
+        wait: bool = True,
+        pasos: int = 100,
+        z_constante: Optional[float] = None,
+        eef_step: float = 0.01,
+        intentos: int = 3,
+    ) -> bool:
+        """
+        Mueve el efector final en línea recta hasta ``pose_objetivo`` interpolando ``pasos`` puntos.
+
+        Resulta útil para trayectorias más rectilíneas o cuando la planificación estándar falla.
+        """
+
+        return self.mover_trayectoria(
+            [pose_objetivo],
+            wait=wait,
+            pasos=pasos,
+            z_constante=z_constante,
+            eef_step=eef_step,
+            intentos=intentos,
+        )
 
     def añadir_suelo(self) -> None:
         pose_suelo = Pose()
