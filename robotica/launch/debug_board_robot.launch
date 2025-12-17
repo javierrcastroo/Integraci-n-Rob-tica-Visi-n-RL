@@ -1,0 +1,31 @@
+<launch>
+    <!-- Cargar la pose fija del ArUco (poseAruco.yaml) para el modo debug -->
+    <rosparam command="load" file="$(find robotica)/config/poseAruco.yaml" />
+
+    <!-- Publicador del layout simulado: usa comandos por tópico para cambiar barcos/munición -->
+    <node pkg="vision_tablero" type="board_debug_publisher.py" name="board_debug_publisher" output="screen">
+        <param name="board_name" value="debug_board" />
+        <param name="board_size" value="5" />
+        <param name="publish_rate" value="1.0" />
+        <param name="auto_publish" value="true" />
+        <!-- Ejemplo de inicialización -->
+        <param name="ship_two_cells" value="A1 A2" />
+        <param name="ship_one_cells" value="C3" />
+        <param name="ammo_cells" value="E5" />
+    </node>
+
+    <!-- Ejecutor debug: recibe celdas por /battleship/debug_target y respeta el layout simulado -->
+    <node pkg="robotica" type="robot_attack_debug_node.py" name="robot_attack_debug" output="screen">
+        <param name="hover_z" value="0.15" />
+        <param name="cell_size" value="0.037" />
+        <param name="move_to_initial" value="false" />
+    </node>
+
+    <!-- Opcional: arranca MoveIt y RViz para ver la escena de planificación (ajusta el include a tu config). -->
+    <arg name="start_moveit" default="false" />
+    <arg name="start_rviz" default="false" />
+
+    <include if="$(arg start_moveit)" file="$(find ur3e_203_moveit_config)/launch/ur3e_203_moveit.launch" />
+
+    <node if="$(arg start_rviz)" pkg="rviz" type="rviz" name="rviz" output="screen" />
+</launch>
