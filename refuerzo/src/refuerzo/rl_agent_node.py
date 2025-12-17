@@ -39,6 +39,17 @@ def update_gui():
     cv2.waitKey(1)   # NO bloquea
 
 
+def mark_diagonals_as_miss(y, x):
+    global guess_board
+    """Marca como MISS (1) las diagonales alrededor de un hit."""
+    diag_offsets = [(-1,-1), (-1,1), (1,-1), (1,1)]
+    for dy, dx in diag_offsets:
+        ny, nx = y + dy, x + dx
+        if 0 <= ny < len(matriz) and 0 <= nx < len(matriz[0])
+            if guess_board[ny, nx] == 0:
+                guess_board[ny, nx] = 1
+
+
 def gui_loop():
     """Hilo dedicado a refrescar el tablero."""
     global last_action, guess_board
@@ -181,6 +192,7 @@ def feedback_callback(msg):
 
     elif fb in ["tocado", "hundido"]:
         guess_board[row, col] = 2
+        mark_diagonals_as_miss(row, col)
         rospy.loginfo(f"[refuerzo] {fb.capitalize()} → turno extra")
         agent_fire()
 
