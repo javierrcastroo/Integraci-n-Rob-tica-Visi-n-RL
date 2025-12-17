@@ -101,10 +101,20 @@ def process_single_board(vis_img, frame_bgr, quad, slot, warp_size=500):
         min_area=40,
     )
 
+    ammo_pts, ammo_mask = object_tracker.detect_colored_points_in_board(
+        hsv,
+        quad,
+        object_tracker.current_ammo_ranges,
+        max_objs=12,
+        min_area=30,
+    )
+
     _draw_points(vis_img, ship_two_pts, (0, 0, 255))
     _draw_points(vis_img, ship_one_pts, (0, 255, 255))
+    _draw_points(vis_img, ammo_pts, (255, 0, 255))
     _draw_points_on_warp(warp_img, ship_two_pts, H_warp, (0, 0, 255))
     _draw_points_on_warp(warp_img, ship_one_pts, H_warp, (0, 255, 255))
+    _draw_points_on_warp(warp_img, ammo_pts, H_warp, (255, 0, 255))
 
     ship_two_cells_raw, ship_two_labels, ship_two_pairs = _map_points_to_cells(
         ship_two_pts, H_warp, warp_size
@@ -112,18 +122,25 @@ def process_single_board(vis_img, frame_bgr, quad, slot, warp_size=500):
     ship_one_cells_raw, ship_one_labels, ship_one_pairs = _map_points_to_cells(
         ship_one_pts, H_warp, warp_size
     )
+    ammo_cells_raw, ammo_labels, ammo_pairs = _map_points_to_cells(
+        ammo_pts, H_warp, warp_size
+    )
 
     slot["ship_two_cells"] = sorted(set(ship_two_cells_raw))
     slot["ship_one_cells"] = sorted(set(ship_one_cells_raw))
+    slot["ammo_cells"] = sorted(set(ammo_cells_raw))
 
     ship_two_detections = _build_detection_entries(ship_two_pairs)
     ship_one_detections = _build_detection_entries(ship_one_pairs)
+    ammo_detections = _build_detection_entries(ammo_pairs)
 
     display_entries = []
     for idx, label in enumerate(ship_two_labels, 1):
         display_entries.append((f"B2-{idx}", label))
     for idx, label in enumerate(ship_one_labels, 1):
         display_entries.append((f"B1-{idx}", label))
+    for idx, label in enumerate(ammo_labels, 1):
+        display_entries.append((f"M-{idx}", label))
 
     _annotate_detections(vis_img, warp_img, slot["name"], display_entries)
 
@@ -131,9 +148,11 @@ def process_single_board(vis_img, frame_bgr, quad, slot, warp_size=500):
         "name": slot["name"],
         "ship_two_cells": slot["ship_two_cells"],
         "ship_one_cells": slot["ship_one_cells"],
+        "ammo_cells": slot["ammo_cells"],
         "board_size": board_tracker.BOARD_SQUARES,
         "ship_two_detections": ship_two_detections,
         "ship_one_detections": ship_one_detections,
+        "ammo_detections": ammo_detections,
     }
 
     if display_entries:
@@ -153,6 +172,7 @@ def fallback_or_decay(slot, vis_img):
         slot["miss"] += 1
         slot["ship_two_cells"] = []
         slot["ship_one_cells"] = []
+        slot["ammo_cells"] = []
 
 
 def draw_quad(img, quad, color=(0, 255, 255)):
