@@ -60,10 +60,13 @@ class RobotAttackDebug:
             self._handle_target(initial_target.strip())
 
         rospy.loginfo(
-            "[robot_attack_debug] Modo debug activo. ArUco fijo en base_link: (%.3f, %.3f), yaw=%.3f rad",
+            "[robot_attack_executor] SIN TF. ArUco fijo en base_link: (%.3f, %.3f), yaw=%.3f rad "
+            "(cell=%.3f, hover_z=%.3f)",
             self.aruco_origin_x,
             self.aruco_origin_y,
             self.aruco_yaw,
+            self.cell_size,
+            self.hover_z,
         )
 
     # ------------------------- Helpers de transformación -------------------------
@@ -81,7 +84,7 @@ class RobotAttackDebug:
     def _load_aruco_pose_from_param(self) -> None:
         pose_param = rospy.get_param("Pose_Actual", None)
         if not isinstance(pose_param, dict):
-            rospy.logwarn("[robot_attack_debug] No se encontró Pose_Actual en parámetros, se usan valores por defecto")
+            rospy.logwarn("[robot_attack_executor] No se encontró Pose_Actual en parámetros, se usan valores por defecto")
             return
 
         pose_dict = pose_param.get("pose", {})
@@ -115,13 +118,13 @@ class RobotAttackDebug:
             self.aruco_yaw = yaw
         except Exception as exc:
             rospy.logwarn(
-                "[robot_attack_debug] No se pudo triangular Pose_Actual, se mantienen valores previos (error: %s)",
+                "[robot_attack_executor] No se pudo triangular Pose_Actual, se mantienen valores previos (error: %s)",
                 exc,
             )
             return
 
         rospy.loginfo(
-            "[robot_attack_debug] Pose del ArUco cargada: (x=%.3f, y=%.3f, yaw=%.3f)",
+            "[robot_attack_executor] Pose del ArUco triangulada: (x=%.3f, y=%.3f, yaw=%.3f)",
             self.aruco_origin_x,
             self.aruco_origin_y,
             self.aruco_yaw,
@@ -149,6 +152,7 @@ class RobotAttackDebug:
         pose.position.x = x_base
         pose.position.y = y_base
         pose.position.z = self.board_surface_z + size / 2.0
+        pose.orientation.w = 1.0
         return pose
 
     # ------------------------- callbacks -------------------------
@@ -156,7 +160,7 @@ class RobotAttackDebug:
         try:
             data = json.loads(msg.data)
         except Exception as exc:
-            rospy.logwarn("[robot_attack_debug] Error parseando layout: %s", exc)
+            rospy.logwarn("[robot_attack_executor] Error parseando layout: %s", exc)
             return
         boards = data.get("boards")
         if not boards:
@@ -177,13 +181,24 @@ class RobotAttackDebug:
     def _handle_target(self, raw_target: str) -> None:
         cell = self._parse_cell(raw_target)
         if cell is None:
-            rospy.logwarn("[robot_attack_debug] Celda de destino inválida: %s", raw_target)
+            rospy.logwarn("[robot_attack_executor] Celda de destino inválida: %s", raw_target)
             return
 
+        x_board = cell[1] * self.cell_size
+        y_board = cell[0] * self.cell_size
+        x_base, y_base = self._board_to_base_xy(x_board, y_board)
+
+        self._log_triangulation(
+            x_board=x_board,
+            y_board=y_board,
+            x_base=x_base,
+            y_base=y_base,
+        )
+
         target_pose = self._cell_to_hover_pose(cell)
+
         rospy.loginfo(
-            "[robot_attack_debug] Moviendo a celda %s (r=%d, c=%d) -> (x=%.3f, y=%.3f, z=%.3f)",
-            raw_target,
+            "[robot_attack_executor] Moviendo a celda (r=%s, c=%s) -> (x=%.3f, y=%.3f, z=%.3f)",
             cell[0],
             cell[1],
             target_pose.position.x,
@@ -199,11 +214,11 @@ class RobotAttackDebug:
             intentos=4,
         )
         if not success:
-            rospy.logwarn("[robot_attack_debug] No se pudo planificar el movimiento lineal")
+            rospy.logwarn("[robot_attack_executor] No se pudo planificar el movimiento lineal")
             return
 
         self.board_request_pub.publish(String("post_robot_attack"))
-        rospy.loginfo("[robot_attack_debug] Petición de captura enviada tras movimiento")
+        rospy.loginfo("[robot_attack_executor] Petición de captura enviada tras mover el robot")
 
     def _extract_cells(self, cells: Iterable[Sequence[int]]) -> List[Cell]:
         result: List[Cell] = []
@@ -240,7 +255,7 @@ class RobotAttackDebug:
             self.ammo_boxes.add(name)
 
         rospy.loginfo(
-            "[robot_attack_debug] Obstáculos actualizados: %s barcos, %s munición",
+            "[robot_attack_executor] Obstáculos actualizados: %s barcos, %s munición",
             len(self.ship_boxes),
             len(self.ammo_boxes),
         )
@@ -254,11 +269,11 @@ class RobotAttackDebug:
 
         if not isinstance(joints, list) or len(joints) != 6:
             rospy.logwarn(
-                "[robot_attack_debug] No se encontró Pos_Inicial/joints válido, se omite el movimiento inicial"
+                "[robot_attack_executor] No se encontró Pos_Inicial/joints válido, se omite el movimiento inicial"
             )
             return
 
-        rospy.loginfo("[robot_attack_debug] Moviendo a posición inicial: %s", joints)
+        rospy.loginfo("[robot_attack_executor] Moviendo a posición inicial: %s", joints)
         self.control.mover_articulaciones(joints, wait=True)
 
     # ------------------------- utils -------------------------
@@ -278,6 +293,30 @@ class RobotAttackDebug:
         if row < 0 or col < 0:
             return None
         return row, col
+
+    def _log_triangulation(
+        self, *, x_board: float, y_board: float, x_base: float, y_base: float
+    ) -> None:
+        """Emite trazas con las coordenadas relevantes para depuración."""
+
+        rospy.loginfo(
+            "[robot_attack_executor][debug] robot->aruco: (x=%.3f, y=%.3f, yaw=%.3f rad)",
+            self.aruco_origin_x,
+            self.aruco_origin_y,
+            self.aruco_yaw,
+        )
+
+        rospy.loginfo(
+            "[robot_attack_executor][debug] aruco->ficha: (x=%.3f, y=%.3f)",
+            x_board,
+            y_board,
+        )
+
+        rospy.loginfo(
+            "[robot_attack_executor][debug] robot->ficha: (x=%.3f, y=%.3f)",
+            x_base,
+            y_base,
+        )
 
 
 def main() -> None:

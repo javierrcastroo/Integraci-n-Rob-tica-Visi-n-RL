@@ -93,6 +93,13 @@ class ControlRobot:
                                   tamaño: tuple = (.1,.1,.1)) -> None:
         box_pose = PoseStamped()
         box_pose.header.frame_id = "base_link"
+        if (
+            pose_caja.orientation.x == 0.0
+            and pose_caja.orientation.y == 0.0
+            and pose_caja.orientation.z == 0.0
+            and pose_caja.orientation.w == 0.0
+        ):
+            pose_caja.orientation.w = 1.0
         box_pose.pose = pose_caja
         box_name = name
         self.scene.add_box(box_name, box_pose, size=tamaño)
@@ -180,6 +187,7 @@ class ControlRobot:
     def añadir_suelo(self) -> None:
         pose_suelo = Pose()
         pose_suelo.position.z = -0.026
+        pose_suelo.orientation.w = 1.0
         self.añadir_caja_a_escena_de_planificacion(pose_suelo,"suelo",(2,2,.05))
 
     def _generar_puntos_intermedios(self, inicio: Pose, fin: Pose, pasos: int = 100) -> List[Pose]:
