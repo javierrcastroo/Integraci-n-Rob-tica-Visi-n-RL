@@ -151,7 +151,8 @@ class BoardDebugPublisher:
         msg = String()
         msg.data = json.dumps(payload)
         self.board_pub.publish(msg)
-        rospy.loginfo(
+        log_fn = rospy.logdebug if reason == "auto" else rospy.loginfo
+        log_fn(
             "[board_debug_publisher] Layout publicado (%s): ship2=%s ship1=%s ammo=%s",
             reason,
             sorted(self.ship_two_cells),

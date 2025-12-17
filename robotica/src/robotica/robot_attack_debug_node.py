@@ -50,6 +50,8 @@ class RobotAttackDebug:
 
         self.ship_boxes: Set[str] = set()
         self.ammo_boxes: Set[str] = set()
+        self._last_ship_cells: Set[Cell] = set()
+        self._last_ammo_cells: Set[Cell] = set()
 
         if self.move_to_initial:
             self._move_to_initial_position()
@@ -167,7 +169,7 @@ class RobotAttackDebug:
             return
         layout = boards[0]
         ship_cells = self._extract_cells(layout.get("ship_two_cells", []))
-        ship_cells.extend(self._extract_cells(layout.get("ship_one_cells", [])))
+        ship_cells.update(self._extract_cells(layout.get("ship_one_cells", [])))
         ammo_cells = self._extract_cells(layout.get("ammo_cells", []))
         self._update_obstacles(ship_cells, ammo_cells)
 
@@ -220,17 +222,20 @@ class RobotAttackDebug:
         self.board_request_pub.publish(String("post_robot_attack"))
         rospy.loginfo("[robot_attack_executor] Petición de captura enviada tras mover el robot")
 
-    def _extract_cells(self, cells: Iterable[Sequence[int]]) -> List[Cell]:
-        result: List[Cell] = []
+    def _extract_cells(self, cells: Iterable[Sequence[int]]) -> Set[Cell]:
+        result: Set[Cell] = set()
         for cell in cells:
             try:
                 row, col = cell
-                result.append((int(row), int(col)))
+                result.add((int(row), int(col)))
             except Exception:
                 continue
         return result
 
-    def _update_obstacles(self, ship_cells: List[Cell], ammo_cells: List[Cell]) -> None:
+    def _update_obstacles(self, ship_cells: Set[Cell], ammo_cells: Set[Cell]) -> None:
+        if ship_cells == self._last_ship_cells and ammo_cells == self._last_ammo_cells:
+            return
+
         for name in self.ship_boxes:
             self.control.scene.remove_world_object(name)
         for name in self.ammo_boxes:
@@ -259,6 +264,8 @@ class RobotAttackDebug:
             len(self.ship_boxes),
             len(self.ammo_boxes),
         )
+        self._last_ship_cells = set(ship_cells)
+        self._last_ammo_cells = set(ammo_cells)
 
     def _move_to_initial_position(self) -> None:
         parametros = rospy.get_param("Pos_Inicial", None)
