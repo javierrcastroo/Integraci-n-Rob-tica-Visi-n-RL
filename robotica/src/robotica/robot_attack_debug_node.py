@@ -3,7 +3,7 @@
 
 import json
 import math
-from typing import Iterable, List, Optional, Sequence, Set, Tuple
+from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 import numpy as np
 import rospy
@@ -52,6 +52,7 @@ class RobotAttackDebug:
         self.ammo_boxes: Set[str] = set()
         self._last_ship_cells: Set[Cell] = set()
         self._last_ammo_cells: Set[Cell] = set()
+        self.cell_xy_base: Dict[Cell, Tuple[float, float]] = {}
 
         if self.move_to_initial:
             self._move_to_initial_position()
@@ -76,11 +77,15 @@ class RobotAttackDebug:
         x_local = x_board + self.board_origin_dx
         y_local = y_board + self.board_origin_dy
 
+        return self._aruco_to_base_xy(x_local, y_local)
+
+    def _aruco_to_base_xy(self, x_aruco: float, y_aruco: float) -> Tuple[float, float]:
+        """Transforma coordenadas en el frame del ArUco al frame base_link."""
         c = math.cos(self.aruco_yaw)
         s = math.sin(self.aruco_yaw)
 
-        x_base = self.aruco_origin_x + (c * x_local - s * y_local)
-        y_base = self.aruco_origin_y + (s * x_local + c * y_local)
+        x_base = self.aruco_origin_x + (c * x_aruco - s * y_aruco)
+        y_base = self.aruco_origin_y + (s * x_aruco + c * y_aruco)
         return x_base, y_base
 
     def _load_aruco_pose_from_param(self) -> None:
@@ -133,10 +138,7 @@ class RobotAttackDebug:
         )
 
     def _cell_to_hover_pose(self, cell: Cell) -> Pose:
-        row, col = cell
-        x_board = col * self.cell_size
-        y_board = row * self.cell_size
-        x_base, y_base = self._board_to_base_xy(x_board, y_board)
+        x_base, y_base = self._cell_xy_base(cell)
 
         pose = self.control.pose_actual()
         pose.position.x = x_base
@@ -145,10 +147,7 @@ class RobotAttackDebug:
         return pose
 
     def _cell_to_box_pose(self, cell: Cell, size: float) -> Pose:
-        row, col = cell
-        x_board = col * self.cell_size
-        y_board = row * self.cell_size
-        x_base, y_base = self._board_to_base_xy(x_board, y_board)
+        x_base, y_base = self._cell_xy_base(cell)
 
         pose = Pose()
         pose.position.x = x_base
@@ -156,6 +155,15 @@ class RobotAttackDebug:
         pose.position.z = self.board_surface_z + size / 2.0
         pose.orientation.w = 1.0
         return pose
+
+    def _cell_xy_base(self, cell: Cell) -> Tuple[float, float]:
+        if cell in self.cell_xy_base:
+            return self.cell_xy_base[cell]
+
+        row, col = cell
+        x_board = col * self.cell_size
+        y_board = row * self.cell_size
+        return self._board_to_base_xy(x_board, y_board)
 
     # ------------------------- callbacks -------------------------
     def board_layout_cb(self, msg: String) -> None:
@@ -168,6 +176,9 @@ class RobotAttackDebug:
         if not boards:
             return
         layout = boards[0]
+        self.cell_xy_base = self._build_cell_base_map(
+            layout.get("cell_centers_aruco", []), layout.get("cell_size_m")
+        )
         ship_cells = self._extract_cells(layout.get("ship_two_cells", []))
         ship_cells.update(self._extract_cells(layout.get("ship_one_cells", [])))
         ammo_cells = self._extract_cells(layout.get("ammo_cells", []))
@@ -188,7 +199,7 @@ class RobotAttackDebug:
 
         x_board = cell[1] * self.cell_size
         y_board = cell[0] * self.cell_size
-        x_base, y_base = self._board_to_base_xy(x_board, y_board)
+        x_base, y_base = self._cell_xy_base(cell)
 
         self._log_triangulation(
             x_board=x_board,
@@ -230,6 +241,28 @@ class RobotAttackDebug:
                 result.add((int(row), int(col)))
             except Exception:
                 continue
+        return result
+
+    def _build_cell_base_map(
+        self, centers_aruco: Iterable[dict], cell_size_m: Optional[float]
+    ) -> Dict[Cell, Tuple[float, float]]:
+        result: Dict[Cell, Tuple[float, float]] = {}
+        if cell_size_m is not None:
+            self.cell_size = cell_size_m
+
+        for entry in centers_aruco or []:
+            try:
+                row = int(entry.get("row"))
+                col = int(entry.get("col"))
+                xy = entry.get("xy_aruco")
+                x_aruco = float(xy[0])
+                y_aruco = float(xy[1])
+            except Exception:
+                continue
+
+            x_base, y_base = self._aruco_to_base_xy(x_aruco, y_aruco)
+            result[(row, col)] = (x_base, y_base)
+
         return result
 
     def _update_obstacles(self, ship_cells: Set[Cell], ammo_cells: Set[Cell]) -> None:

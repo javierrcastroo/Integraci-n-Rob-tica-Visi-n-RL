@@ -18,6 +18,7 @@ import board_state
 import board_processing as bp
 import aruco_utils
 import battleship_logic
+import board_tracker
 
 
 class LayoutAccumulator:
@@ -249,7 +250,7 @@ class BoardMainNode:
         ]
 
     def publish_layouts(self, layouts):
-        payload = {"boards": layouts}
+        payload = {"boards": [self._with_cartesian_coords(l) for l in layouts]}
         msg = String()
         msg.data = json.dumps(payload, default=self.json_default)
         self.board_pub.publish(msg)
@@ -262,6 +263,47 @@ class BoardMainNode:
         if isinstance(obj, tuple):
             return list(obj)
         raise TypeError
+
+    def _with_cartesian_coords(self, layout):
+        """Añade los centros XY de todas las casillas y de la munición."""
+
+        board_size = layout.get("board_size") or board_tracker.BOARD_SQUARES
+        cell_size_m = float(getattr(board_tracker, "SQUARE_SIZE_CM", 3.7)) / 100.0
+
+        cell_centers = []
+        for row in range(int(board_size)):
+            for col in range(int(board_size)):
+                x_aruco = (col + 0.5) * cell_size_m
+                y_aruco = (row + 0.5) * cell_size_m
+                cell_centers.append(
+                    {
+                        "row": row,
+                        "col": col,
+                        "xy_aruco": [x_aruco, y_aruco],
+                    }
+                )
+
+        ammo_centers = []
+        for cell in layout.get("ammo_cells", []):
+            try:
+                row, col = int(cell[0]), int(cell[1])
+            except Exception:
+                continue
+            x_aruco = (col + 0.5) * cell_size_m
+            y_aruco = (row + 0.5) * cell_size_m
+            ammo_centers.append(
+                {
+                    "row": row,
+                    "col": col,
+                    "xy_aruco": [x_aruco, y_aruco],
+                }
+            )
+
+        layout = dict(layout)
+        layout["cell_centers_aruco"] = cell_centers
+        layout["ammo_centers_aruco"] = ammo_centers
+        layout["cell_size_m"] = cell_size_m
+        return layout
 
     def update_capture_state(self, layouts):
         if self.capture_state == "CAPTURING":
