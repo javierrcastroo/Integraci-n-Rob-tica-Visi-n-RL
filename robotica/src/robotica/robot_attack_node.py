@@ -12,7 +12,7 @@ from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
 import rospy
 from geometry_msgs.msg import Pose
 from std_msgs.msg import String
-from tf.transformations import euler_from_quaternion
+from tf.transformations import euler_from_quaternion, quaternion_from_euler
 
 from control_robot import ControlRobot
 
@@ -27,6 +27,7 @@ class RobotAttackExecutor:
         # Valores iniciales que se rellenan al cargar poseAruco.yaml
         self.aruco_origin_x = 0.0
         self.aruco_origin_y = 0.0
+        self.aruco_origin_z = 0.0
         self.aruco_yaw = 0.0
 
         # Carga inicial del ArUco desde poseAruco.yaml (parámetro Pose_Actual)
@@ -39,7 +40,6 @@ class RobotAttackExecutor:
 
         # Tamaño de celda, alturas y obstáculos
         self.cell_size = float(rospy.get_param("~cell_size", 0.037))
-        self.hover_z = float(rospy.get_param("~hover_z", 0.15))
         self.board_surface_z = float(rospy.get_param("~board_surface_z", 0.0))
         self.ship_box_size = float(rospy.get_param("~ship_box_size", 0.025))
         self.ammo_box_size = float(rospy.get_param("~ammo_box_size", self.ship_box_size))
@@ -67,19 +67,29 @@ class RobotAttackExecutor:
         if self.move_to_initial:
             self._move_to_initial_position()
 
+        # --- CAMBIO: log coherente con el Z que realmente usas ---
         rospy.loginfo(
-            "[robot_attack_executor] SIN TF. ArUco fijo en base_link: (%.3f, %.3f), yaw=%.3f rad "
-            "(cell=%.3f, hover_z=%.3f)",
+            "[robot_attack_executor] SIN TF. ArUco fijo en base_link: (%.3f, %.3f, %.3f), yaw=%.3f rad "
+            "(cell=%.3f)",
             self.aruco_origin_x,
             self.aruco_origin_y,
+            self.aruco_origin_z,
             self.aruco_yaw,
             self.cell_size,
-            self.hover_z,
         )
 
     # -------------------------
     # Helpers de transformación (tablero -> base_link)
     # -------------------------
+    
+    def _down_gripper_quat(self) -> Tuple[float, float, float, float]:
+        """
+        Quaternion para mantener la pinza "mirando hacia abajo" en base_link.
+        Convención típica: roll=pi, pitch=0, yaw=0.
+        """
+        qx, qy, qz, qw = quaternion_from_euler(math.pi, 0.0, 0.0)
+        return qx, qy, qz, qw
+
 
     def _board_to_base_xy(self, x_board: float, y_board: float) -> Tuple[float, float]:
         """
@@ -97,6 +107,9 @@ class RobotAttackExecutor:
 
     def _aruco_to_base_xy(self, x_aruco: float, y_aruco: float) -> Tuple[float, float]:
         """Transforma coordenadas en el frame del ArUco al frame base_link."""
+        
+        x_aruco = -x_aruco
+        
         c = math.cos(self.aruco_yaw)
         s = math.sin(self.aruco_yaw)
 
@@ -145,6 +158,7 @@ class RobotAttackExecutor:
 
             self.aruco_origin_x = float(pos_dict.get("x", 0.0))
             self.aruco_origin_y = float(pos_dict.get("y", 0.0))
+            self.aruco_origin_z = float(pos_dict.get("z", 0.0))
             self.aruco_yaw = yaw
         except Exception as exc:
             rospy.logwarn(
@@ -154,19 +168,26 @@ class RobotAttackExecutor:
             return
 
         rospy.loginfo(
-            "[robot_attack_executor] Pose del ArUco triangulada: (x=%.3f, y=%.3f, yaw=%.3f)",
+            "[robot_attack_executor] Pose del ArUco cargada: (x=%.3f, y=%.3f, z=%.3f, yaw=%.3f)",
             self.aruco_origin_x,
             self.aruco_origin_y,
+            self.aruco_origin_z,
             self.aruco_yaw,
         )
 
     def _cell_to_hover_pose(self, cell: Cell) -> Pose:
         x_base, y_base = self._cell_xy_base(cell)
 
-        pose = self.control.pose_actual()
+        pose = Pose()
         pose.position.x = x_base
         pose.position.y = y_base
-        pose.position.z = self.hover_z
+        pose.position.z = self.aruco_origin_z  # o self.hover_z si lo prefieres
+
+        qx, qy, qz, qw = self._down_gripper_quat()
+        pose.orientation.x = qx
+        pose.orientation.y = qy
+        pose.orientation.z = qz
+        pose.orientation.w = qw
         return pose
 
     def _cell_to_box_pose(self, cell: Cell) -> Pose:
@@ -203,12 +224,21 @@ class RobotAttackExecutor:
             eef_step=0.0075,
             intentos=4,
         )
-        if not success:
-            rospy.logwarn(
-                "[robot_attack_executor] No se pudo planificar el movimiento lineal (%s)",
-                context,
-            )
-        return success
+
+        if success:
+            return True
+
+        rospy.logwarn(
+            "[robot_attack_executor] No se pudo planificar el movimiento lineal (%s)",
+            context,
+        )
+
+        # --- CAMBIO RECOMENDADO: fallback a planificación estándar ---
+        rospy.logwarn(
+            "[robot_attack_executor] Fallback: probando mover_a_pose (%s)",
+            context,
+        )
+        return self.control.mover_a_pose(pose, wait=True)
 
     # -------------------------
     # Callbacks
@@ -427,4 +457,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
