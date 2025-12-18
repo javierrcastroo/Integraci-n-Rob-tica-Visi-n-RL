@@ -5,11 +5,10 @@ import json
 import math
 from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
-import numpy as np
 import rospy
 from geometry_msgs.msg import Pose
 from std_msgs.msg import String
-from tf.transformations import euler_from_quaternion, quaternion_inverse, quaternion_matrix
+from tf.transformations import euler_from_quaternion
 
 from control_robot import ControlRobot
 
@@ -21,9 +20,9 @@ class RobotAttackDebug:
         rospy.init_node("robot_attack_debug", anonymous=True)
 
         # --- Configuración fija del ArUco respecto a base_link ---
-        self.aruco_origin_x = float(rospy.get_param("~aruco_origin_x", 0.30))
-        self.aruco_origin_y = float(rospy.get_param("~aruco_origin_y", 0.45))
-        self.aruco_yaw = float(rospy.get_param("~aruco_yaw", 0.0))
+        self.aruco_origin_x = 0.0
+        self.aruco_origin_y = 0.0
+        self.aruco_yaw = 0.0
         self._load_aruco_pose_from_param()
 
         self.board_origin_dx = float(rospy.get_param("~board_origin_dx", 0.0))
@@ -99,33 +98,21 @@ class RobotAttackDebug:
         ori_dict = pose_dict.get("orientation", {})
 
         try:
-            t_robot_in_aruco = np.array(
-                [
-                    float(pos_dict.get("x", 0.0)),
-                    float(pos_dict.get("y", 0.0)),
-                    float(pos_dict.get("z", 0.0)),
-                ]
-            )
-
-            quat_aruco_to_robot = [
+            quat_aruco_in_robot = [
                 float(ori_dict.get("x", 0.0)),
                 float(ori_dict.get("y", 0.0)),
                 float(ori_dict.get("z", 0.0)),
                 float(ori_dict.get("w", 1.0)),
             ]
 
-            rotation_matrix = quaternion_matrix(quat_aruco_to_robot)[:3, :3]
-            t_aruco_in_robot = -rotation_matrix.T @ t_robot_in_aruco
+            _, _, yaw = euler_from_quaternion(quat_aruco_in_robot)
 
-            quat_robot_to_aruco = quaternion_inverse(quat_aruco_to_robot)
-            _, _, yaw = euler_from_quaternion(quat_robot_to_aruco)
-
-            self.aruco_origin_x = float(t_aruco_in_robot[0])
-            self.aruco_origin_y = float(t_aruco_in_robot[1])
+            self.aruco_origin_x = float(pos_dict.get("x", 0.0))
+            self.aruco_origin_y = float(pos_dict.get("y", 0.0))
             self.aruco_yaw = yaw
         except Exception as exc:
             rospy.logwarn(
-                "[robot_attack_executor] No se pudo triangular Pose_Actual, se mantienen valores previos (error: %s)",
+                "[robot_attack_executor] No se pudo cargar Pose_Actual; se mantienen valores previos (error: %s)",
                 exc,
             )
             return
