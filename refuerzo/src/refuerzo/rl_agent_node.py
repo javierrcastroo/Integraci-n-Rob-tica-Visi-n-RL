@@ -45,7 +45,7 @@ def mark_diagonals_as_miss(y, x):
     diag_offsets = [(-1,-1), (-1,1), (1,-1), (1,1)]
     for dy, dx in diag_offsets:
         ny, nx = y + dy, x + dx
-        if 0 <= ny < len(matriz) and 0 <= nx < len(matriz[0])
+        if 0 <= ny < len(guess_board) and 0 <= nx < len(guess_board[0]):
             if guess_board[ny, nx] == 0:
                 guess_board[ny, nx] = 1
 
