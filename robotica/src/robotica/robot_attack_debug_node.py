@@ -3,13 +3,12 @@
 
 import json
 import math
-from typing import Iterable, List, Optional, Sequence, Set, Tuple
+from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
-import numpy as np
 import rospy
 from geometry_msgs.msg import Pose
 from std_msgs.msg import String
-from tf.transformations import euler_from_quaternion, quaternion_inverse, quaternion_matrix
+from tf.transformations import euler_from_quaternion
 
 from control_robot import ControlRobot
 
@@ -21,9 +20,9 @@ class RobotAttackDebug:
         rospy.init_node("robot_attack_debug", anonymous=True)
 
         # --- Configuración fija del ArUco respecto a base_link ---
-        self.aruco_origin_x = float(rospy.get_param("~aruco_origin_x", 0.30))
-        self.aruco_origin_y = float(rospy.get_param("~aruco_origin_y", 0.45))
-        self.aruco_yaw = float(rospy.get_param("~aruco_yaw", 0.0))
+        self.aruco_origin_x = 0.0
+        self.aruco_origin_y = 0.0
+        self.aruco_yaw = 0.0
         self._load_aruco_pose_from_param()
 
         self.board_origin_dx = float(rospy.get_param("~board_origin_dx", 0.0))
@@ -52,6 +51,7 @@ class RobotAttackDebug:
         self.ammo_boxes: Set[str] = set()
         self._last_ship_cells: Set[Cell] = set()
         self._last_ammo_cells: Set[Cell] = set()
+        self.cell_xy_base: Dict[Cell, Tuple[float, float]] = {}
 
         if self.move_to_initial:
             self._move_to_initial_position()
@@ -76,11 +76,15 @@ class RobotAttackDebug:
         x_local = x_board + self.board_origin_dx
         y_local = y_board + self.board_origin_dy
 
+        return self._aruco_to_base_xy(x_local, y_local)
+
+    def _aruco_to_base_xy(self, x_aruco: float, y_aruco: float) -> Tuple[float, float]:
+        """Transforma coordenadas en el frame del ArUco al frame base_link."""
         c = math.cos(self.aruco_yaw)
         s = math.sin(self.aruco_yaw)
 
-        x_base = self.aruco_origin_x + (c * x_local - s * y_local)
-        y_base = self.aruco_origin_y + (s * x_local + c * y_local)
+        x_base = self.aruco_origin_x + (c * x_aruco - s * y_aruco)
+        y_base = self.aruco_origin_y + (s * x_aruco + c * y_aruco)
         return x_base, y_base
 
     def _load_aruco_pose_from_param(self) -> None:
@@ -94,33 +98,21 @@ class RobotAttackDebug:
         ori_dict = pose_dict.get("orientation", {})
 
         try:
-            t_robot_in_aruco = np.array(
-                [
-                    float(pos_dict.get("x", 0.0)),
-                    float(pos_dict.get("y", 0.0)),
-                    float(pos_dict.get("z", 0.0)),
-                ]
-            )
-
-            quat_aruco_to_robot = [
+            quat_aruco_in_robot = [
                 float(ori_dict.get("x", 0.0)),
                 float(ori_dict.get("y", 0.0)),
                 float(ori_dict.get("z", 0.0)),
                 float(ori_dict.get("w", 1.0)),
             ]
 
-            rotation_matrix = quaternion_matrix(quat_aruco_to_robot)[:3, :3]
-            t_aruco_in_robot = -rotation_matrix.T @ t_robot_in_aruco
+            _, _, yaw = euler_from_quaternion(quat_aruco_in_robot)
 
-            quat_robot_to_aruco = quaternion_inverse(quat_aruco_to_robot)
-            _, _, yaw = euler_from_quaternion(quat_robot_to_aruco)
-
-            self.aruco_origin_x = float(t_aruco_in_robot[0])
-            self.aruco_origin_y = float(t_aruco_in_robot[1])
+            self.aruco_origin_x = float(pos_dict.get("x", 0.0))
+            self.aruco_origin_y = float(pos_dict.get("y", 0.0))
             self.aruco_yaw = yaw
         except Exception as exc:
             rospy.logwarn(
-                "[robot_attack_executor] No se pudo triangular Pose_Actual, se mantienen valores previos (error: %s)",
+                "[robot_attack_executor] No se pudo cargar Pose_Actual; se mantienen valores previos (error: %s)",
                 exc,
             )
             return
@@ -133,10 +125,7 @@ class RobotAttackDebug:
         )
 
     def _cell_to_hover_pose(self, cell: Cell) -> Pose:
-        row, col = cell
-        x_board = col * self.cell_size
-        y_board = row * self.cell_size
-        x_base, y_base = self._board_to_base_xy(x_board, y_board)
+        x_base, y_base = self._cell_xy_base(cell)
 
         pose = self.control.pose_actual()
         pose.position.x = x_base
@@ -145,10 +134,7 @@ class RobotAttackDebug:
         return pose
 
     def _cell_to_box_pose(self, cell: Cell, size: float) -> Pose:
-        row, col = cell
-        x_board = col * self.cell_size
-        y_board = row * self.cell_size
-        x_base, y_base = self._board_to_base_xy(x_board, y_board)
+        x_base, y_base = self._cell_xy_base(cell)
 
         pose = Pose()
         pose.position.x = x_base
@@ -156,6 +142,15 @@ class RobotAttackDebug:
         pose.position.z = self.board_surface_z + size / 2.0
         pose.orientation.w = 1.0
         return pose
+
+    def _cell_xy_base(self, cell: Cell) -> Tuple[float, float]:
+        if cell in self.cell_xy_base:
+            return self.cell_xy_base[cell]
+
+        row, col = cell
+        x_board = col * self.cell_size
+        y_board = row * self.cell_size
+        return self._board_to_base_xy(x_board, y_board)
 
     # ------------------------- callbacks -------------------------
     def board_layout_cb(self, msg: String) -> None:
@@ -168,6 +163,9 @@ class RobotAttackDebug:
         if not boards:
             return
         layout = boards[0]
+        self.cell_xy_base = self._build_cell_base_map(
+            layout.get("cell_centers_aruco", []), layout.get("cell_size_m")
+        )
         ship_cells = self._extract_cells(layout.get("ship_two_cells", []))
         ship_cells.update(self._extract_cells(layout.get("ship_one_cells", [])))
         ammo_cells = self._extract_cells(layout.get("ammo_cells", []))
@@ -188,7 +186,7 @@ class RobotAttackDebug:
 
         x_board = cell[1] * self.cell_size
         y_board = cell[0] * self.cell_size
-        x_base, y_base = self._board_to_base_xy(x_board, y_board)
+        x_base, y_base = self._cell_xy_base(cell)
 
         self._log_triangulation(
             x_board=x_board,
@@ -230,6 +228,28 @@ class RobotAttackDebug:
                 result.add((int(row), int(col)))
             except Exception:
                 continue
+        return result
+
+    def _build_cell_base_map(
+        self, centers_aruco: Iterable[dict], cell_size_m: Optional[float]
+    ) -> Dict[Cell, Tuple[float, float]]:
+        result: Dict[Cell, Tuple[float, float]] = {}
+        if cell_size_m is not None:
+            self.cell_size = cell_size_m
+
+        for entry in centers_aruco or []:
+            try:
+                row = int(entry.get("row"))
+                col = int(entry.get("col"))
+                xy = entry.get("xy_aruco")
+                x_aruco = float(xy[0])
+                y_aruco = float(xy[1])
+            except Exception:
+                continue
+
+            x_base, y_base = self._aruco_to_base_xy(x_aruco, y_aruco)
+            result[(row, col)] = (x_base, y_base)
+
         return result
 
     def _update_obstacles(self, ship_cells: Set[Cell], ammo_cells: Set[Cell]) -> None:
