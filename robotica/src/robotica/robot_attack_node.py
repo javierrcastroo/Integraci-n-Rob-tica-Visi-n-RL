@@ -7,13 +7,12 @@ Incluye yaw opcional (rotación alrededor de Z) para alinear tablero y robot.
 
 import json
 import math
-from typing import Iterable, List, Optional, Sequence, Set, Tuple
+from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
-import numpy as np
 import rospy
 from geometry_msgs.msg import Pose
 from std_msgs.msg import String
-from tf.transformations import euler_from_quaternion, quaternion_inverse, quaternion_matrix
+from tf.transformations import euler_from_quaternion
 
 from control_robot import ControlRobot
 
@@ -25,12 +24,10 @@ class RobotAttackExecutor:
         rospy.init_node("robot_attack_executor", anonymous=True)
 
         # --- Configuración fija del ArUco respecto a base_link (SIN TF) ---
-        # Offset del centro del ArUco expresado en base_link (metros)
-        self.aruco_origin_x = float(rospy.get_param("~aruco_origin_x", 0.30))
-        self.aruco_origin_y = float(rospy.get_param("~aruco_origin_y", 0.45))
-
-        # Yaw del tablero/aruco respecto a base_link (rad). 0.0 => sin rotación.
-        self.aruco_yaw = float(rospy.get_param("~aruco_yaw", 0.0))
+        # Valores iniciales que se rellenan al cargar poseAruco.yaml
+        self.aruco_origin_x = 0.0
+        self.aruco_origin_y = 0.0
+        self.aruco_yaw = 0.0
 
         # Carga inicial del ArUco desde poseAruco.yaml (parámetro Pose_Actual)
         self._load_aruco_pose_from_param()
@@ -64,6 +61,8 @@ class RobotAttackExecutor:
 
         self.ship_boxes: Set[str] = set()
         self.ammo_boxes: Set[str] = set()
+        self.cell_xy_base: Dict[Cell, Tuple[float, float]] = {}
+        self.ammo_available: List[Cell] = []
 
         if self.move_to_initial:
             self._move_to_initial_position()
@@ -94,13 +93,26 @@ class RobotAttackExecutor:
         x_local = x_board + self.board_origin_dx
         y_local = y_board + self.board_origin_dy
 
+        return self._aruco_to_base_xy(x_local, y_local)
+
+    def _aruco_to_base_xy(self, x_aruco: float, y_aruco: float) -> Tuple[float, float]:
+        """Transforma coordenadas en el frame del ArUco al frame base_link."""
         c = math.cos(self.aruco_yaw)
         s = math.sin(self.aruco_yaw)
 
         # Rotación 2D + traslación
-        x_base = self.aruco_origin_x + (c * x_local - s * y_local)
-        y_base = self.aruco_origin_y + (s * x_local + c * y_local)
+        x_base = self.aruco_origin_x + (c * x_aruco - s * y_aruco)
+        y_base = self.aruco_origin_y + (s * x_aruco + c * y_aruco)
         return x_base, y_base
+
+    def _cell_xy_base(self, cell: Cell) -> Tuple[float, float]:
+        if cell in self.cell_xy_base:
+            return self.cell_xy_base[cell]
+
+        row, col = cell
+        x_board = col * self.cell_size
+        y_board = row * self.cell_size
+        return self._board_to_base_xy(x_board, y_board)
 
     def _load_aruco_pose_from_param(self) -> None:
         """Carga la pose inicial del ArUco desde ``Pose_Actual``.
@@ -122,33 +134,21 @@ class RobotAttackExecutor:
         ori_dict = pose_dict.get("orientation", {})
 
         try:
-            t_robot_in_aruco = np.array(
-                [
-                    float(pos_dict.get("x", 0.0)),
-                    float(pos_dict.get("y", 0.0)),
-                    float(pos_dict.get("z", 0.0)),
-                ]
-            )
-
-            quat_aruco_to_robot = [
+            quat_aruco_in_robot = [
                 float(ori_dict.get("x", 0.0)),
                 float(ori_dict.get("y", 0.0)),
                 float(ori_dict.get("z", 0.0)),
                 float(ori_dict.get("w", 1.0)),
             ]
 
-            rotation_matrix = quaternion_matrix(quat_aruco_to_robot)[:3, :3]
-            t_aruco_in_robot = -rotation_matrix.T @ t_robot_in_aruco
+            _, _, yaw = euler_from_quaternion(quat_aruco_in_robot)
 
-            quat_robot_to_aruco = quaternion_inverse(quat_aruco_to_robot)
-            _, _, yaw = euler_from_quaternion(quat_robot_to_aruco)
-
-            self.aruco_origin_x = float(t_aruco_in_robot[0])
-            self.aruco_origin_y = float(t_aruco_in_robot[1])
+            self.aruco_origin_x = float(pos_dict.get("x", 0.0))
+            self.aruco_origin_y = float(pos_dict.get("y", 0.0))
             self.aruco_yaw = yaw
         except Exception as exc:
             rospy.logwarn(
-                "[robot_attack_executor] No se pudo triangular Pose_Actual, se mantienen valores previos (error: %s)",
+                "[robot_attack_executor] No se pudo cargar Pose_Actual; se mantienen valores previos (error: %s)",
                 exc,
             )
             return
@@ -161,12 +161,7 @@ class RobotAttackExecutor:
         )
 
     def _cell_to_hover_pose(self, cell: Cell) -> Pose:
-        # Coordenadas de celda en frame del tablero (convención: col->X, row->Y)
-        row, col = cell
-        x_board = col * self.cell_size
-        y_board = row * self.cell_size
-
-        x_base, y_base = self._board_to_base_xy(x_board, y_board)
+        x_base, y_base = self._cell_xy_base(cell)
 
         pose = self.control.pose_actual()
         pose.position.x = x_base
@@ -175,11 +170,7 @@ class RobotAttackExecutor:
         return pose
 
     def _cell_to_box_pose(self, cell: Cell) -> Pose:
-        row, col = cell
-        x_board = col * self.cell_size
-        y_board = row * self.cell_size
-
-        x_base, y_base = self._board_to_base_xy(x_board, y_board)
+        x_base, y_base = self._cell_xy_base(cell)
 
         pose = Pose()
         pose.position.x = x_base
@@ -188,17 +179,36 @@ class RobotAttackExecutor:
         return pose
 
     def _cell_to_ammo_pose(self, cell: Cell) -> Pose:
-        row, col = cell
-        x_board = col * self.cell_size
-        y_board = row * self.cell_size
-
-        x_base, y_base = self._board_to_base_xy(x_board, y_board)
+        x_base, y_base = self._cell_xy_base(cell)
 
         pose = Pose()
         pose.position.x = x_base
         pose.position.y = y_base
         pose.position.z = self.board_surface_z + self.ammo_box_size / 2.0
         return pose
+
+    def _pop_next_ammo_cell(self) -> Optional[Cell]:
+        if not self.ammo_available:
+            rospy.loginfo("[robot_attack_executor] Sin munición disponible en la cola")
+            return None
+
+        return self.ammo_available.pop(0)
+
+    def _move_linear(self, pose: Pose, *, context: str) -> bool:
+        success = self.control.mover_en_linea_recta(
+            pose,
+            wait=True,
+            pasos=200,
+            z_constante=pose.position.z,
+            eef_step=0.0075,
+            intentos=4,
+        )
+        if not success:
+            rospy.logwarn(
+                "[robot_attack_executor] No se pudo planificar el movimiento lineal (%s)",
+                context,
+            )
+        return success
 
     # -------------------------
     # Callbacks
@@ -238,7 +248,7 @@ class RobotAttackExecutor:
         # Coordenadas tablero (Aruco -> ficha) y triangulación hasta el robot
         x_board = col * self.cell_size
         y_board = row * self.cell_size
-        x_base, y_base = self._board_to_base_xy(x_board, y_board)
+        x_base, y_base = self._cell_xy_base((row, col))
 
         self._log_triangulation(
             x_board=x_board,
@@ -246,6 +256,20 @@ class RobotAttackExecutor:
             x_base=x_base,
             y_base=y_base,
         )
+
+        ammo_cell = self._pop_next_ammo_cell()
+        if ammo_cell is not None:
+            ammo_pose = self._cell_to_hover_pose(ammo_cell)
+            rospy.loginfo(
+                "[robot_attack_executor] Moviendo a munición (r=%s, c=%s) -> (x=%.3f, y=%.3f, z=%.3f)",
+                ammo_cell[0],
+                ammo_cell[1],
+                ammo_pose.position.x,
+                ammo_pose.position.y,
+                ammo_pose.position.z,
+            )
+            if not self._move_linear(ammo_pose, context="munición"):
+                return
 
         target_pose = self._cell_to_hover_pose((row, col))
 
@@ -258,16 +282,7 @@ class RobotAttackExecutor:
             target_pose.position.z,
         )
 
-        success = self.control.mover_en_linea_recta(
-            target_pose,
-            wait=True,
-            pasos=200,
-            z_constante=target_pose.position.z,
-            eef_step=0.0075,
-            intentos=4,
-        )
-        if not success:
-            rospy.logwarn("[robot_attack_executor] No se pudo planificar el movimiento lineal")
+        if not self._move_linear(target_pose, context="ataque"):
             return
 
         self.board_request_pub.publish(String("post_robot_attack"))
@@ -313,9 +328,14 @@ class RobotAttackExecutor:
             return
 
         layout = boards[0]
+        self.cell_xy_base = self._build_cell_base_map(
+            layout.get("cell_centers_aruco", []), layout.get("cell_size_m")
+        )
+        self.ammo_available = self._extract_cells(layout.get("ammo_cells", []))
+
         ship_cells = self._extract_cells(layout.get("ship_two_cells", []))
         ship_cells.extend(self._extract_cells(layout.get("ship_one_cells", [])))
-        ammo_cells = self._extract_cells(layout.get("ammo_cells", []))
+        ammo_cells = list(self.ammo_available)
 
         self._update_obstacles(ship_cells, ammo_cells)
 
@@ -327,6 +347,30 @@ class RobotAttackExecutor:
                 result.append((int(row), int(col)))
             except Exception:
                 continue
+        return result
+
+    def _build_cell_base_map(
+        self, centers_aruco: Iterable[dict], cell_size_m: Optional[float]
+    ) -> Dict[Cell, Tuple[float, float]]:
+        """Convierte los centros enviados por visión (frame ArUco) a base_link."""
+
+        result: Dict[Cell, Tuple[float, float]] = {}
+        if cell_size_m is not None:
+            self.cell_size = cell_size_m
+
+        for entry in centers_aruco or []:
+            try:
+                row = int(entry.get("row"))
+                col = int(entry.get("col"))
+                xy = entry.get("xy_aruco")
+                x_aruco = float(xy[0])
+                y_aruco = float(xy[1])
+            except Exception:
+                continue
+
+            x_base, y_base = self._aruco_to_base_xy(x_aruco, y_aruco)
+            result[(row, col)] = (x_base, y_base)
+
         return result
 
     def _update_obstacles(self, ship_cells: List[Cell], ammo_cells: List[Cell]) -> None:
