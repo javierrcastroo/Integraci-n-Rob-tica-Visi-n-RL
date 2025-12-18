@@ -65,6 +65,7 @@ class RobotAttackExecutor:
         self.ship_boxes: Set[str] = set()
         self.ammo_boxes: Set[str] = set()
         self.cell_xy_base: Dict[Cell, Tuple[float, float]] = {}
+        self.ammo_available: List[Cell] = []
 
         if self.move_to_initial:
             self._move_to_initial_position()
@@ -201,6 +202,29 @@ class RobotAttackExecutor:
         pose.position.z = self.board_surface_z + self.ammo_box_size / 2.0
         return pose
 
+    def _pop_next_ammo_cell(self) -> Optional[Cell]:
+        if not self.ammo_available:
+            rospy.loginfo("[robot_attack_executor] Sin munición disponible en la cola")
+            return None
+
+        return self.ammo_available.pop(0)
+
+    def _move_linear(self, pose: Pose, *, context: str) -> bool:
+        success = self.control.mover_en_linea_recta(
+            pose,
+            wait=True,
+            pasos=200,
+            z_constante=pose.position.z,
+            eef_step=0.0075,
+            intentos=4,
+        )
+        if not success:
+            rospy.logwarn(
+                "[robot_attack_executor] No se pudo planificar el movimiento lineal (%s)",
+                context,
+            )
+        return success
+
     # -------------------------
     # Callbacks
     # -------------------------
@@ -239,7 +263,7 @@ class RobotAttackExecutor:
         # Coordenadas tablero (Aruco -> ficha) y triangulación hasta el robot
         x_board = col * self.cell_size
         y_board = row * self.cell_size
-        x_base, y_base = self._board_to_base_xy(x_board, y_board)
+        x_base, y_base = self._cell_xy_base((row, col))
 
         self._log_triangulation(
             x_board=x_board,
@@ -247,6 +271,20 @@ class RobotAttackExecutor:
             x_base=x_base,
             y_base=y_base,
         )
+
+        ammo_cell = self._pop_next_ammo_cell()
+        if ammo_cell is not None:
+            ammo_pose = self._cell_to_hover_pose(ammo_cell)
+            rospy.loginfo(
+                "[robot_attack_executor] Moviendo a munición (r=%s, c=%s) -> (x=%.3f, y=%.3f, z=%.3f)",
+                ammo_cell[0],
+                ammo_cell[1],
+                ammo_pose.position.x,
+                ammo_pose.position.y,
+                ammo_pose.position.z,
+            )
+            if not self._move_linear(ammo_pose, context="munición"):
+                return
 
         target_pose = self._cell_to_hover_pose((row, col))
 
@@ -259,16 +297,7 @@ class RobotAttackExecutor:
             target_pose.position.z,
         )
 
-        success = self.control.mover_en_linea_recta(
-            target_pose,
-            wait=True,
-            pasos=200,
-            z_constante=target_pose.position.z,
-            eef_step=0.0075,
-            intentos=4,
-        )
-        if not success:
-            rospy.logwarn("[robot_attack_executor] No se pudo planificar el movimiento lineal")
+        if not self._move_linear(target_pose, context="ataque"):
             return
 
         self.board_request_pub.publish(String("post_robot_attack"))
@@ -317,9 +346,11 @@ class RobotAttackExecutor:
         self.cell_xy_base = self._build_cell_base_map(
             layout.get("cell_centers_aruco", []), layout.get("cell_size_m")
         )
+        self.ammo_available = self._extract_cells(layout.get("ammo_cells", []))
+
         ship_cells = self._extract_cells(layout.get("ship_two_cells", []))
         ship_cells.extend(self._extract_cells(layout.get("ship_one_cells", [])))
-        ammo_cells = self._extract_cells(layout.get("ammo_cells", []))
+        ammo_cells = list(self.ammo_available)
 
         self._update_obstacles(ship_cells, ammo_cells)
 
