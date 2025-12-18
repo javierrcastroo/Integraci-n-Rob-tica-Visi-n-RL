@@ -142,7 +142,7 @@ class ControlRobot:
             self.move_group.set_start_state_to_current_state()
             paso_ef = eef_step * (0.5 ** intento)
             (plan, fraction) = self.move_group.compute_cartesian_path(
-                trayecto_expandido, paso_ef, 0.0
+                trayecto_expandido, paso_ef, True
             )
 
             if fraction == 1.0:
@@ -226,36 +226,34 @@ class ControlRobot:
 if __name__ == '__main__':
     # Crear el objeto de tipo robot
     control = ControlRobot()
-    
-    pi_medios = pi/2
-    # Mover el robot a articulaciones iniciales
-    control.mover_articulaciones([0,-pi_medios,-pi_medios,-pi_medios,pi_medios,0])
-    
-    # Mover el robot a una pose
-    pose_actual = control.pose_actual()
-    pose_actual.position.z -= 0.1
-    control.mover_a_pose(pose_actual)
-    
-    # Mover el efector final del robot en línea recta a través de varias poses
-    poses = [] # Lista de poses que va a recorrer
-    
-    # Pose 1
-    pose_actual = control.pose_actual()
-    pose_actual.position.z += 0.1
-    poses.append(copy.deepcopy(pose_actual))
-    
-    # Pose 2
-    pose_actual.position.y += 0.1
-    poses.append(copy.deepcopy(pose_actual))
-    
-    # Pose 3
-    pose_actual.position.x += 0.1
-    poses.append(copy.deepcopy(pose_actual))
-    
-    # Pose 4
-    pose_actual.position.x -= 0.1
-    pose_actual.position.y -= 0.1
-    pose_actual.position.z -= 0.1
-    poses.append(copy.deepcopy(pose_actual))
-    
-    control.mover_trayectoria(poses)
+
+    pi_medios = pi / 2
+
+    # 1) Mover el robot a articulaciones iniciales
+    control.mover_articulaciones([0, -pi_medios, -pi_medios, -pi_medios, pi_medios, 0])
+
+    rospy.sleep(1.0)
+
+    # 2) Definir pose objetivo ABSOLUTA en base_link
+    pose_objetivo = Pose()
+    pose_objetivo.position.x = -0.299
+    pose_objetivo.position.y = -0.244
+    pose_objetivo.position.z = 0.284
+
+    # Orientación válida (identidad)
+    pose_objetivo.orientation.w = 1.0
+
+    rospy.loginfo(
+        "[TEST] Moviendo a pose objetivo (x=%.3f, y=%.3f, z=%.3f)",
+        pose_objetivo.position.x,
+        pose_objetivo.position.y,
+        pose_objetivo.position.z,
+    )
+
+    # 3) Movimiento directo a la pose (NO cartesiano)
+    ok = control.mover_a_pose(pose_objetivo, wait=True)
+
+    if ok:
+        rospy.loginfo("[TEST] Movimiento completado correctamente")
+    else:
+        rospy.logerr("[TEST] No se pudo planificar el movimiento a la pose objetivo")
