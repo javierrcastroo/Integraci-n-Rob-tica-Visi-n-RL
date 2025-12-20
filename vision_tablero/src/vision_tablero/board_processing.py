@@ -40,7 +40,9 @@ def process_board(frame, board_state, cam_mtx=None, dist=None, warp_size=500):
     ship_one_mask_show = None
     layouts = []
 
+    ratio_cm_per_pix = None
     if boards_found:
+        ratio_cm_per_pix = boards_found[0].get("ratio")
         quad = boards_found[0]["quad"]
         board_state["last_quad"] = quad
         board_state["miss"] = 0
@@ -48,6 +50,10 @@ def process_board(frame, board_state, cam_mtx=None, dist=None, warp_size=500):
             vis_all, frame, quad, board_state, warp_size
         )
         if layout_info is not None:
+            layout_info["ammo_global_detections"] = _build_global_detections(
+                ammo_pts, ratio_cm_per_pix
+            )
+            layout_info["ratio_cm_per_pix"] = ratio_cm_per_pix
             layouts.append(layout_info)
     else:
         fallback_or_decay(board_state, vis_all)
@@ -60,6 +66,29 @@ def process_board(frame, board_state, cam_mtx=None, dist=None, warp_size=500):
         ammo_mask_show,
         layouts,
     )
+
+
+def _build_global_detections(ammo_pts, ratio_cm_per_pix):
+    origin = board_state.GLOBAL_ORIGIN
+    if origin is None:
+        return []
+
+    ox, oy = origin
+    detections = []
+    for (cx, cy) in ammo_pts or []:
+        offset_x = float(cx) - float(ox)
+        offset_y = float(cy) - float(oy)
+        entry = {
+            "pixel": (int(cx), int(cy)),
+            "offset_from_origin": (offset_x, offset_y),
+        }
+        if ratio_cm_per_pix is not None:
+            entry["xy_aruco"] = (
+                (offset_x * ratio_cm_per_pix) / 100.0,
+                (offset_y * ratio_cm_per_pix) / 100.0,
+            )
+        detections.append(entry)
+    return detections
 
 
 def process_single_board(vis_img, frame_bgr, quad, slot, warp_size=500):
