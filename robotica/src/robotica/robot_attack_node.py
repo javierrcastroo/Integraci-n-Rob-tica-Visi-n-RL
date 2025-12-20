@@ -75,7 +75,7 @@ class RobotAttackExecutor:
         self.ship_boxes: Set[str] = set()
         self.ammo_boxes: Set[str] = set()
         self.cell_xy_base: Dict[Cell, Tuple[float, float]] = {}
-        self.ammo_available: List[Cell] = []
+        self.ammo_available: List[Tuple[float, float]] = []
 
         if self.move_to_initial:
             self._move_to_initial_position()
@@ -212,8 +212,23 @@ class RobotAttackExecutor:
         pose.position.z = self.board_surface_z + self.ship_box_size / 2.0
         return pose
 
-    def _cell_to_ammo_pose(self, cell: Cell) -> Pose:
-        x_base, y_base = self._cell_xy_base(cell)
+    def _ammo_xy_to_hover_pose(self, ammo_xy: Tuple[float, float]) -> Pose:
+        x_base, y_base = ammo_xy
+
+        pose = Pose()
+        pose.position.x = x_base
+        pose.position.y = y_base
+        pose.position.z = self.aruco_origin_z
+
+        qx, qy, qz, qw = self._down_gripper_quat()
+        pose.orientation.x = qx
+        pose.orientation.y = qy
+        pose.orientation.z = qz
+        pose.orientation.w = qw
+        return pose
+
+    def _ammo_xy_to_box_pose(self, ammo_xy: Tuple[float, float]) -> Pose:
+        x_base, y_base = ammo_xy
 
         pose = Pose()
         pose.position.x = x_base
@@ -221,7 +236,7 @@ class RobotAttackExecutor:
         pose.position.z = self.board_surface_z + self.ammo_box_size / 2.0
         return pose
 
-    def _pop_next_ammo_cell(self) -> Optional[Cell]:
+    def _pop_next_ammo_xy(self) -> Optional[Tuple[float, float]]:
         if not self.ammo_available:
             rospy.loginfo("[robot_attack_executor] Sin munición disponible en la cola")
             return None
@@ -300,13 +315,11 @@ class RobotAttackExecutor:
             y_base=y_base,
         )
 
-        ammo_cell = self._pop_next_ammo_cell()
-        if ammo_cell is not None:
-            ammo_pose = self._cell_to_hover_pose(ammo_cell)
+        ammo_xy = self._pop_next_ammo_xy()
+        if ammo_xy is not None:
+            ammo_pose = self._ammo_xy_to_hover_pose(ammo_xy)
             rospy.loginfo(
-                "[robot_attack_executor] Moviendo a munición (r=%s, c=%s) -> (x=%.3f, y=%.3f, z=%.3f)",
-                ammo_cell[0],
-                ammo_cell[1],
+                "[robot_attack_executor] Moviendo a munición -> (x=%.3f, y=%.3f, z=%.3f)",
                 ammo_pose.position.x,
                 ammo_pose.position.y,
                 ammo_pose.position.z,
@@ -382,7 +395,7 @@ class RobotAttackExecutor:
         self.cell_xy_base = self._build_cell_base_map(
             layout.get("cell_centers_aruco", []), layout.get("cell_size_m")
         )
-        self.ammo_available = self._extract_cells(layout.get("ammo_cells", []))
+        self.ammo_available = self._build_ammo_base_list(layout)
 
         ship_cells = self._extract_cells(layout.get("ship_two_cells", []))
         ship_cells.extend(self._extract_cells(layout.get("ship_one_cells", [])))
@@ -424,7 +437,32 @@ class RobotAttackExecutor:
 
         return result
 
-    def _update_obstacles(self, ship_cells: List[Cell], ammo_cells: List[Cell]) -> None:
+    def _build_ammo_base_list(self, layout: dict) -> List[Tuple[float, float]]:
+        ammo_points = layout.get("ammo_points_aruco")
+        if not ammo_points:
+            ammo_points = layout.get("ammo_centers_aruco", [])
+
+        ammo_base: List[Tuple[float, float]] = []
+        for entry in ammo_points or []:
+            try:
+                xy = entry.get("xy_aruco")
+                if xy is None:
+                    continue
+                x_aruco = float(xy[0])
+                y_aruco = float(xy[1])
+            except Exception:
+                continue
+            ammo_base.append(self._aruco_to_base_xy(x_aruco, y_aruco))
+
+        if ammo_base:
+            return ammo_base
+
+        ammo_cells = self._extract_cells(layout.get("ammo_cells", []))
+        return [self._cell_xy_base(cell) for cell in ammo_cells]
+
+    def _update_obstacles(
+        self, ship_cells: List[Cell], ammo_cells: List[Tuple[float, float]]
+    ) -> None:
         for name in self.ship_boxes:
             self.control.scene.remove_world_object(name)
         for name in self.ammo_boxes:
@@ -440,9 +478,9 @@ class RobotAttackExecutor:
             )
             self.ship_boxes.add(name)
 
-        for row, col in ammo_cells:
-            name = f"ammo_r{row}_c{col}"
-            pose_caja = self._cell_to_ammo_pose((row, col))
+        for idx, ammo_xy in enumerate(ammo_cells):
+            name = f"ammo_{idx}"
+            pose_caja = self._ammo_xy_to_box_pose(ammo_xy)
             self.control.añadir_caja_a_escena_de_planificacion(
                 pose_caja, name, tamaño=(self.ammo_box_size,) * 3
             )

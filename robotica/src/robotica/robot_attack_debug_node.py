@@ -50,7 +50,7 @@ class RobotAttackDebug:
         self.ship_boxes: Set[str] = set()
         self.ammo_boxes: Set[str] = set()
         self._last_ship_cells: Set[Cell] = set()
-        self._last_ammo_cells: Set[Cell] = set()
+        self._last_ammo_points: Tuple[Tuple[float, float], ...] = tuple()
         self.cell_xy_base: Dict[Cell, Tuple[float, float]] = {}
 
         if self.move_to_initial:
@@ -168,8 +168,8 @@ class RobotAttackDebug:
         )
         ship_cells = self._extract_cells(layout.get("ship_two_cells", []))
         ship_cells.update(self._extract_cells(layout.get("ship_one_cells", [])))
-        ammo_cells = self._extract_cells(layout.get("ammo_cells", []))
-        self._update_obstacles(ship_cells, ammo_cells)
+        ammo_points = self._build_ammo_base_list(layout)
+        self._update_obstacles(ship_cells, ammo_points)
 
     def target_cb(self, msg: String) -> None:
         text = msg.data.strip()
@@ -252,8 +252,34 @@ class RobotAttackDebug:
 
         return result
 
-    def _update_obstacles(self, ship_cells: Set[Cell], ammo_cells: Set[Cell]) -> None:
-        if ship_cells == self._last_ship_cells and ammo_cells == self._last_ammo_cells:
+    def _build_ammo_base_list(self, layout: dict) -> List[Tuple[float, float]]:
+        ammo_points = layout.get("ammo_points_aruco")
+        if not ammo_points:
+            ammo_points = layout.get("ammo_centers_aruco", [])
+
+        ammo_base: List[Tuple[float, float]] = []
+        for entry in ammo_points or []:
+            try:
+                xy = entry.get("xy_aruco")
+                if xy is None:
+                    continue
+                x_aruco = float(xy[0])
+                y_aruco = float(xy[1])
+            except Exception:
+                continue
+            ammo_base.append(self._aruco_to_base_xy(x_aruco, y_aruco))
+
+        if ammo_base:
+            return ammo_base
+
+        ammo_cells = self._extract_cells(layout.get("ammo_cells", []))
+        return [self._cell_xy_base(cell) for cell in ammo_cells]
+
+    def _update_obstacles(
+        self, ship_cells: Set[Cell], ammo_points: List[Tuple[float, float]]
+    ) -> None:
+        ammo_snapshot = tuple((round(x, 6), round(y, 6)) for x, y in ammo_points)
+        if ship_cells == self._last_ship_cells and ammo_snapshot == self._last_ammo_points:
             return
 
         for name in self.ship_boxes:
@@ -271,9 +297,13 @@ class RobotAttackDebug:
             )
             self.ship_boxes.add(name)
 
-        for row, col in ammo_cells:
-            name = f"ammo_r{row}_c{col}"
-            pose_caja = self._cell_to_box_pose((row, col), self.ammo_box_size)
+        for idx, ammo_xy in enumerate(ammo_points):
+            name = f"ammo_{idx}"
+            pose_caja = Pose()
+            pose_caja.position.x = ammo_xy[0]
+            pose_caja.position.y = ammo_xy[1]
+            pose_caja.position.z = self.board_surface_z + self.ammo_box_size / 2.0
+            pose_caja.orientation.w = 1.0
             self.control.añadir_caja_a_escena_de_planificacion(
                 pose_caja, name, tamaño=(self.ammo_box_size,) * 3
             )
@@ -285,7 +315,7 @@ class RobotAttackDebug:
             len(self.ammo_boxes),
         )
         self._last_ship_cells = set(ship_cells)
-        self._last_ammo_cells = set(ammo_cells)
+        self._last_ammo_points = ammo_snapshot
 
     def _move_to_initial_position(self) -> None:
         parametros = rospy.get_param("Pos_Inicial", None)

@@ -40,6 +40,9 @@ class LayoutAccumulator:
                 "ship_two_pixels": defaultdict(list),
                 "ship_one_pixels": defaultdict(list),
                 "ammo_pixels": defaultdict(list),
+                "ammo_global_offsets": [],
+                "ammo_global_pixels": [],
+                "ammo_global_xy": [],
             }
         )
 
@@ -94,6 +97,30 @@ class LayoutAccumulator:
                     entry["ammo_pixels"][cell].append(tuple(pixel))
                 if offset is not None:
                     entry["ammo_offsets"][cell].append(tuple(offset))
+
+            global_ammo = layout.get("ammo_global_detections", [])
+            if global_ammo:
+                global_ammo = sorted(
+                    global_ammo,
+                    key=lambda det: (
+                        det.get("pixel", det.get("offset_from_origin", (0, 0)))[0],
+                        det.get("pixel", det.get("offset_from_origin", (0, 0)))[1],
+                    ),
+                )
+                for idx, det in enumerate(global_ammo):
+                    while len(entry["ammo_global_offsets"]) <= idx:
+                        entry["ammo_global_offsets"].append([])
+                        entry["ammo_global_pixels"].append([])
+                        entry["ammo_global_xy"].append([])
+                    pixel = det.get("pixel")
+                    offset = det.get("offset_from_origin")
+                    xy = det.get("xy_aruco")
+                    if pixel is not None:
+                        entry["ammo_global_pixels"][idx].append(tuple(pixel))
+                    if offset is not None:
+                        entry["ammo_global_offsets"][idx].append(tuple(offset))
+                    if xy is not None:
+                        entry["ammo_global_xy"][idx].append(tuple(xy))
 
     def progress(self):
         if self.target_frames <= 0:
@@ -172,6 +199,22 @@ class LayoutAccumulator:
                     }
                 )
 
+            ammo_global_positions = []
+            for idx, xy_list in enumerate(entry["ammo_global_xy"]):
+                mean_xy = self._average_point(xy_list)
+                mean_pixel = self._average_point(entry["ammo_global_pixels"][idx])
+                mean_offset = self._average_point(entry["ammo_global_offsets"][idx])
+                if mean_xy is None and mean_pixel is None and mean_offset is None:
+                    continue
+                ammo_global_positions.append(
+                    {
+                        "id": idx,
+                        "mean_pixel": mean_pixel,
+                        "mean_offset_from_origin": mean_offset,
+                        "xy_aruco": mean_xy,
+                    }
+                )
+
             layout = {
                 "name": name,
                 "board_size": entry["board_size"],
@@ -182,6 +225,7 @@ class LayoutAccumulator:
                 "ship_two_positions": ship_two_positions,
                 "ship_one_positions": ship_one_positions,
                 "ammo_positions": ammo_positions,
+                "ammo_points_aruco": ammo_global_positions,
             }
             layouts.append(layout)
 
@@ -302,6 +346,7 @@ class BoardMainNode:
         layout = dict(layout)
         layout["cell_centers_aruco"] = cell_centers
         layout["ammo_centers_aruco"] = ammo_centers
+        layout["ammo_points_aruco"] = layout.get("ammo_points_aruco", [])
         layout["cell_size_m"] = cell_size_m
         return layout
 
