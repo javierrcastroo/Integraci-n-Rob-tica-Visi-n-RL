@@ -12,7 +12,8 @@ from geometry_msgs.msg import Pose, PoseStamped
 import moveit_msgs.msg
 from moveit_commander import MoveGroupCommander, RobotCommander, PlanningSceneInterface, roscpp_initialize
 from moveit_commander.conversions import pose_to_list
-from math import pi, tau, dist, fabs, cos
+from tf.transformations import quaternion_from_euler
+from math import pi, tau, dist, fabs, cos, hypot, atan2
 from std_msgs.msg import String
 
 class ControlRobot:
@@ -257,6 +258,70 @@ class ControlRobot:
         result = self.gripper_action_client.get_result()
         
         return result.reached_goal
+
+    def añadir_tablero_como_plano(
+            self,
+            *,
+            corners_base: List[tuple],
+            name: str = "board_plane",
+            thickness: float = 0.002,
+            z_epsilon: float = 0.005,
+    ) -> None:
+        """
+        Añade el tablero como una caja fina (plano) en la escena, a partir de 4 esquinas en base_link.
+        Se coloca ligeramente por encima del suelo.
+        """
+        if not corners_base or len(corners_base) != 4:
+            rospy.logwarn("[ControlRobot] No se pudo añadir tablero: corners_base inválido.")
+            return
+
+        # eliminar si existe
+        try:
+            self.scene.remove_world_object(name)
+        except Exception:
+            pass
+
+        # Centro como media de esquinas
+        cx = sum(p[0] for p in corners_base) / 4.0
+        cy = sum(p[1] for p in corners_base) / 4.0
+
+        # Dimensiones: suponemos rectángulo, usando aristas (0->1) y (1->2)
+        x0, y0 = corners_base[0]
+        x1, y1 = corners_base[1]
+        x2, y2 = corners_base[2]
+
+        size_x = hypot(x1 - x0, y1 - y0)
+        size_y = hypot(x2 - x1, y2 - y1)
+
+        # Yaw: dirección de la arista superior (0->1)
+        yaw = atan2((y1 - y0), (x1 - x0))
+        qx, qy, qz, qw = quaternion_from_euler(0.0, 0.0, yaw)
+
+        pose = Pose()
+        pose.position.x = float(cx)
+        pose.position.y = float(cy)
+
+        z_top_suelo = self.suelo_top_z()
+        pose.position.z = float(z_top_suelo + z_epsilon + thickness / 2.0)
+
+        pose.orientation.x = float(qx)
+        pose.orientation.y = float(qy)
+        pose.orientation.z = float(qz)
+        pose.orientation.w = float(qw)
+
+        self.añadir_caja_a_escena_de_planificacion(
+            pose,
+            name,
+            tamaño=(float(size_x), float(size_y), float(thickness)),
+        )
+
+        rospy.loginfo(
+            "[ControlRobot] Tablero añadido como plano '%s' (size_x=%.3f, size_y=%.3f, yaw=%.3f rad)",
+            name,
+            size_x,
+            size_y,
+            yaw,
+        )
 
 if __name__ == '__main__':
     # Crear el objeto de tipo robot

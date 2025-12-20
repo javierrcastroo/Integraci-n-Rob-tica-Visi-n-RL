@@ -43,6 +43,7 @@ class LayoutAccumulator:
                 "ammo_global_offsets": [],
                 "ammo_global_pixels": [],
                 "ammo_global_xy": [],
+                "board_corners_aruco": [],
             }
         )
 
@@ -97,6 +98,10 @@ class LayoutAccumulator:
                     entry["ammo_pixels"][cell].append(tuple(pixel))
                 if offset is not None:
                     entry["ammo_offsets"][cell].append(tuple(offset))
+
+            corners = layout.get("board_corners_aruco")
+            if corners and len(corners) == 4:
+                entry["board_corners_aruco"].append([tuple(c) for c in corners])
 
             global_ammo = layout.get("ammo_global_detections", [])
             if global_ammo:
@@ -215,6 +220,26 @@ class LayoutAccumulator:
                     }
                 )
 
+            mean_board_corners = []
+            corners_frames = entry.get("board_corners_aruco", [])
+
+            if corners_frames:
+                # corners_frames: lista de frames, cada frame tiene 4 esquinas [(x,y), (x,y), (x,y), (x,y)]
+                for k in range(4):
+                    pts_k = []
+                    for frame_corners in corners_frames:
+                        if frame_corners and len(frame_corners) == 4 and frame_corners[k] is not None:
+                            pts_k.append(frame_corners[k])
+
+                    mean_k = self._average_point(pts_k)
+                    mean_board_corners.append(mean_k)
+
+                # si alguna esquina no pudo promediarse, lo anulamos para no enviar basura
+                if any(c is None for c in mean_board_corners):
+                    mean_board_corners = []
+            else:
+                mean_board_corners = []
+
             layout = {
                 "name": name,
                 "board_size": entry["board_size"],
@@ -226,6 +251,7 @@ class LayoutAccumulator:
                 "ship_one_positions": ship_one_positions,
                 "ammo_positions": ammo_positions,
                 "ammo_points_aruco": ammo_global_positions,
+                "board_corners_aruco": mean_board_corners,
             }
             layouts.append(layout)
 
@@ -347,6 +373,7 @@ class BoardMainNode:
         layout["cell_centers_aruco"] = cell_centers
         layout["ammo_centers_aruco"] = ammo_centers
         layout["ammo_points_aruco"] = layout.get("ammo_points_aruco", [])
+        layout["board_corners_aruco"] = layout.get("board_corners_aruco", [])
         layout["cell_size_m"] = cell_size_m
         return layout
 

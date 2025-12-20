@@ -54,6 +54,7 @@ def process_board(frame, board_state, cam_mtx=None, dist=None, warp_size=500):
                 ammo_pts, ratio_cm_per_pix
             )
             layout_info["ratio_cm_per_pix"] = ratio_cm_per_pix
+            layout_info["board_corners_aruco"] = _board_quad_pixel_to_corners_aruco(quad, ratio_cm_per_pix)
             layouts.append(layout_info)
     else:
         fallback_or_decay(board_state, vis_all)
@@ -88,6 +89,27 @@ def _build_global_detections(ammo_pts, ratio_cm_per_pix):
             )
         detections.append(entry)
     return detections
+
+def _board_quad_pixel_to_corners_aruco(quad, ratio_cm_per_pix):
+    """
+    Convierte las 4 esquinas del tablero (quad en píxeles) a coordenadas XY en metros
+    relativas al origen GLOBAL_ORIGIN (ArUco), usando ratio_cm_per_pix.
+    """
+    origin = board_state.GLOBAL_ORIGIN
+    if origin is None or quad is None or ratio_cm_per_pix is None:
+        return []
+
+    ox, oy = origin
+    corners_aruco = []
+    for (px, py) in quad:
+        offset_x = float(px) - float(ox)
+        offset_y = float(py) - float(oy)
+        x_m = (offset_x * float(ratio_cm_per_pix)) / 100.0
+        y_m = (offset_y * float(ratio_cm_per_pix)) / 100.0
+        corners_aruco.append((x_m, y_m))
+
+    return corners_aruco
+
 
 def process_single_board(vis_img, frame_bgr, quad, slot, warp_size=500):
     """

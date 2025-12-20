@@ -49,6 +49,9 @@ class RobotAttackExecutor:
         self.aruco_obstacle_thickness = float(rospy.get_param("~aruco_obstacle_thickness", 0.002))
         self.aruco_obstacle_z_epsilon = float(rospy.get_param("~aruco_obstacle_z_epsilon", 0.005))
 
+        self.board_obstacle_thickness = float(rospy.get_param("~board_obstacle_thickness", 0.002))
+        self.board_obstacle_z_epsilon = float(rospy.get_param("~board_obstacle_z_epsilon", 0.005))
+        self.board_obstacle_name = str(rospy.get_param("~board_obstacle_name", "board_plane"))
 
         # Control
         self.control = ControlRobot(init_ros_node=False)
@@ -387,11 +390,40 @@ class RobotAttackExecutor:
             rospy.logwarn("[robot_attack_executor] Error parseando layout: %s", exc)
             return
 
+        # ==========================
+        # DEBUG: imprimir JSON recibido
+        # ==========================
+        print("\n" + "=" * 25 + " BOARD_LAYOUT RECIBIDO " + "=" * 25)
+        print(json.dumps(data, indent=2))
+        print("=" * 78 + "\n")
+
         boards = data.get("boards")
         if not boards:
             return
 
         layout = boards[0]
+        board_corners_aruco = layout.get("board_corners_aruco", [])
+        if board_corners_aruco and len(board_corners_aruco) == 4:
+            corners_base = []
+            for xy in board_corners_aruco:
+                try:
+                    x_aruco = float(xy[0])
+                    y_aruco = float(xy[1])
+                except Exception:
+                    corners_base = []
+                    break
+                corners_base.append(self._aruco_to_base_xy(x_aruco, y_aruco))
+
+            if len(corners_base) == 4:
+                self.control.añadir_tablero_como_plano(
+                    corners_base=corners_base,
+                    name=self.board_obstacle_name,
+                    thickness=self.board_obstacle_thickness,
+                    z_epsilon=self.board_obstacle_z_epsilon,
+                )
+        else:
+            rospy.logwarn("[robot_attack_executor] No llegó board_corners_aruco (o no tiene 4 puntos).")
+
         self.cell_xy_base = self._build_cell_base_map(
             layout.get("cell_centers_aruco", []), layout.get("cell_size_m")
         )
