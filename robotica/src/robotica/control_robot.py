@@ -34,6 +34,9 @@ class ControlRobot:
         self.group_name = "robot"
         self.move_group = MoveGroupCommander(self.group_name)
         self.gripper_action_client = SimpleActionClient("rg2_action_server", GripperCommandAction)
+        self.floor_name = "suelo"
+        self.floor_size = (2.0, 2.0, 0.05)   # (x, y, z)
+        self.floor_center_z = -0.026
         self.añadir_suelo()
 
         # Parámetros para hacer la planificación más robusta
@@ -186,9 +189,41 @@ class ControlRobot:
 
     def añadir_suelo(self) -> None:
         pose_suelo = Pose()
-        pose_suelo.position.z = -0.026
+        pose_suelo.position.z = self.floor_center_z
         pose_suelo.orientation.w = 1.0
-        self.añadir_caja_a_escena_de_planificacion(pose_suelo,"suelo",(2,2,.05))
+        self.añadir_caja_a_escena_de_planificacion(pose_suelo, self.floor_name, self.floor_size)
+
+    def suelo_top_z(self) -> float:
+        return float(self.floor_center_z + self.floor_size[2] / 2.0)
+
+    def añadir_aruco_como_plano(self,*,x: float,y: float,name: str = "aruco_marker",size_xy: float = 0.03, thickness: float = 0.002,z_epsilon: float = 0.005) -> None:
+        """
+        Añade un obstáculo representando el ArUco como una caja muy delgada (plano).
+        Se coloca sobre el suelo (ignorando z del ArUco).
+        """
+
+        # Si ya existe, lo eliminamos y recreamos (evita duplicados)
+        try:
+            self.scene.remove_world_object(name)
+        except Exception:
+            pass
+
+        pose = Pose()
+        pose.position.x = float(x)
+        pose.position.y = float(y)
+
+        z_top_suelo = self.suelo_top_z()
+        pose.position.z = z_top_suelo + float(z_epsilon) + float(thickness) / 2.0
+
+        pose.orientation.w = 1.0
+
+        self.añadir_caja_a_escena_de_planificacion(
+            pose,
+            name,
+            tamaño=(float(size_xy), float(size_xy), float(thickness)),
+        )
+
+
 
     def _generar_puntos_intermedios(self, inicio: Pose, fin: Pose, pasos: int = 100) -> List[Pose]:
         """Genera ``pasos`` poses entre ``inicio`` y ``fin`` usando numpy."""

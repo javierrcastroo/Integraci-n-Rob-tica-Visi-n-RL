@@ -43,10 +43,23 @@ class RobotAttackExecutor:
         self.board_surface_z = float(rospy.get_param("~board_surface_z", 0.0))
         self.ship_box_size = float(rospy.get_param("~ship_box_size", 0.025))
         self.ammo_box_size = float(rospy.get_param("~ammo_box_size", self.ship_box_size))
-        self.move_to_initial = bool(rospy.get_param("~move_to_initial", False))
+        self.move_to_initial = bool(rospy.get_param("~move_to_initial", True))
+
+        self.aruco_obstacle_size_xy = float(rospy.get_param("~aruco_obstacle_size_xy", 0.03))
+        self.aruco_obstacle_thickness = float(rospy.get_param("~aruco_obstacle_thickness", 0.002))
+        self.aruco_obstacle_z_epsilon = float(rospy.get_param("~aruco_obstacle_z_epsilon", 0.005))
+
 
         # Control
         self.control = ControlRobot(init_ros_node=False)
+        self.control.añadir_aruco_como_plano(
+            x=self.aruco_origin_x,
+            y=self.aruco_origin_y,
+            name="aruco_marker",
+            size_xy=self.aruco_obstacle_size_xy,
+            thickness=self.aruco_obstacle_thickness,
+            z_epsilon=self.aruco_obstacle_z_epsilon,
+        )
 
         # Subs/Pubs
         self.attack_result_sub = rospy.Subscriber(
@@ -55,9 +68,9 @@ class RobotAttackExecutor:
         self.board_layout_sub = rospy.Subscriber(
             "battleship/board_layout", String, self.board_layout_cb, queue_size=10
         )
-        self.board_request_pub = rospy.Publisher(
-            "battleship/board_request", String, queue_size=10
-        )
+        #self.board_request_pub = rospy.Publisher(
+        #    "battleship/board_request", String, queue_size=10
+        #)
 
         self.ship_boxes: Set[str] = set()
         self.ammo_boxes: Set[str] = set()
@@ -315,8 +328,16 @@ class RobotAttackExecutor:
         if not self._move_linear(target_pose, context="ataque"):
             return
 
-        self.board_request_pub.publish(String("post_robot_attack"))
-        rospy.loginfo("[robot_attack_executor] Petición de captura enviada tras mover el robot")
+        if self.move_to_initial:
+            rospy.loginfo(
+                "[robot_attack_executor] Ataque completado, volviendo a Pos_Inicial"
+            )
+            ok = self._move_to_initial_position()
+            if not ok:
+                rospy.logwarn("[robot_attack_executor] No se pudo volver a Pos_Inicial tras el ataque.")
+
+                #self.board_request_pub.publish(String("post_robot_attack"))
+                rospy.loginfo("[robot_attack_executor] Petición de captura enviada tras mover el robot")
 
     # -------------------------
     # Debug helpers
@@ -433,21 +454,31 @@ class RobotAttackExecutor:
             len(self.ammo_boxes),
         )
 
-    def _move_to_initial_position(self) -> None:
+    def _move_to_initial_position(self) -> bool:
+        """
+        Reutiliza exactamente la lógica del initial_position_node:
+        lee Pos_Inicial/joints y mueve el robot.
+        """
         parametros = rospy.get_param("Pos_Inicial", None)
-        joints: Optional[List[float]] = None
+        joints = None
 
         if isinstance(parametros, dict):
             joints = parametros.get("joints")
 
         if not isinstance(joints, list) or len(joints) != 6:
             rospy.logwarn(
-                "[robot_attack_executor] No se encontró Pos_Inicial/joints válido, se omite el movimiento inicial"
+                "[robot_attack_executor] No se encontró Pos_Inicial/joints válido, no se puede volver a inicial."
             )
-            return
+            return False
 
-        rospy.loginfo("[robot_attack_executor] Moviendo a posición inicial: %s", joints)
-        self.control.mover_articulaciones(joints, wait=True)
+        rospy.loginfo("[robot_attack_executor] Volviendo a Pos_Inicial: %s", joints)
+        ok = self.control.mover_articulaciones(joints, wait=True)
+
+        if not ok:
+            rospy.logwarn("[robot_attack_executor] Falló el retorno a Pos_Inicial.")
+            return False
+
+        return True
 
 
 def main() -> None:
