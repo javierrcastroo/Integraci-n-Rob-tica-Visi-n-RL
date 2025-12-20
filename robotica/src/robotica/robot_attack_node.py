@@ -350,7 +350,7 @@ class RobotAttackExecutor:
                 rospy.logwarn("[robot_attack_executor] No se pudo volver a Pos_Inicial tras el ataque.")
 
                 #self.board_request_pub.publish(String("post_robot_attack"))
-                rospy.loginfo("[robot_attack_executor] Petición de captura enviada tras mover el robot")
+                #rospy.loginfo("[robot_attack_executor] Petición de captura enviada tras mover el robot")
 
     # -------------------------
     # Debug helpers
