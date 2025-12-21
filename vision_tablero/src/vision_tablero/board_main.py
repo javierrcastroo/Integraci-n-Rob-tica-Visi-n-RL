@@ -468,6 +468,13 @@ class BoardMainNode:
         elif key == ord("s"):
             self.start_capture("tecla 's'")
 
+        elif key == ord("r"):
+            board_tracker.current_ranges = []
+            object_tracker.current_ship_two_ranges = []
+            object_tracker.current_ship_one_ranges = []
+            object_tracker.current_ammo_ranges = []
+            print("[INFO] RESET: limpiados rangos HSV (tablero/barcos/munición)")
+
     def spin(self):
         while not rospy.is_shutdown():
             frame = self.last_frame
