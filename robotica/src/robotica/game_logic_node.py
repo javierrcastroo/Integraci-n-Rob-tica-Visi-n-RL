@@ -99,19 +99,13 @@ class GameLogicNode(object):
 
         rospy.loginfo("[game_logic_node] Iniciado. Esperando tablero y ataques...")
 
-    def notify_rl_turn(self, player):
-        """Asigna el turno al agente RL cuando el jugador 1 ha actuado."""
-        if player != "P1":
-            return
-
-        if not self.board_valid or self.current_layout is None:
-            return
-
-        if self.all_ship_cells.issubset(self.hits):
-            return
-
-        rospy.loginfo("[game_logic_node] Turno para el Player 2 (RL)")
-        self.rl_turn_pub.publish(Empty())
+    def notify_rl_turn(self):
+        rospy.loginfo("[game_logic_figuras] Turno para RL")
+        rospy.Timer(
+            rospy.Duration(0.5),
+            lambda _: self.rl_turn_pub.publish(Empty()),
+            oneshot=True
+        )
 
     # ---------- callback tablero ----------
     def board_cb(self, msg):
@@ -157,9 +151,7 @@ class GameLogicNode(object):
             data = json.loads(msg.data)
         except Exception as e:
             rospy.logwarn(f"[game_logic_node] Error parseando ataque: {e}")
-            return
-
-        
+            return   
 
         gestures = data.get("gestures", [])
         player = data.get("player", "P1")
@@ -207,7 +199,6 @@ class GameLogicNode(object):
                     },
                     message="Ataque fuera del tablero detectado",
                 )
-                #self.notify_rl_turn(player)
                 return
 
         cell = (row_idx, col_idx)
@@ -225,7 +216,6 @@ class GameLogicNode(object):
                 },
                 message=f"Ataque repetido en {cell_name}",
             )
-            #self.notify_rl_turn(player)
             return
 
         # registramos impacto
@@ -244,7 +234,7 @@ class GameLogicNode(object):
                 },
                 message=f"Agua en {cell_name}",
             )
-            self.notify_rl_turn(player)
+            self.notify_rl_turn()
             return
 
         # impacto en algún barco
@@ -278,8 +268,6 @@ class GameLogicNode(object):
             },
             message=message,
         )
-
-        #self.notify_rl_turn(player)
 
     def rl_attack_cb(self, msg):
         """
