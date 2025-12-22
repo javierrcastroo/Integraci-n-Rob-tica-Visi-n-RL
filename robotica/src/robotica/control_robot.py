@@ -39,6 +39,17 @@ class ControlRobot:
         self.floor_size = (2.0, 2.0, 0.05)   # (x, y, z)
         self.floor_center_z = -0.026
         self.añadir_suelo()
+        
+        self.techo_name = "techo"
+        self.techo_size = (2.0, 2.0, 0.05)   # (x, y, z)
+        self.techo_center_z = 0.6
+        self.añadir_techo()
+        
+        self.wall_name = "wall_y_0_6"
+        self.wall_size = (2.0, 0.05, 1.2)   # (x, y_grosor, z_altura)
+        self.wall_center_y = -0.6
+        self.wall_center_z = 0.6            # mitad de la altura
+        self.añadir_pared_y()
 
         # Parámetros para hacer la planificación más robusta
         self.move_group.allow_replanning(True)
@@ -193,9 +204,36 @@ class ControlRobot:
         pose_suelo.position.z = self.floor_center_z
         pose_suelo.orientation.w = 1.0
         self.añadir_caja_a_escena_de_planificacion(pose_suelo, self.floor_name, self.floor_size)
+        
+    def añadir_techo(self) -> None:
+        pose_techo = Pose()
+        pose_techo.position.z = self.techo_center_z
+        pose_techo.orientation.w = 1.0
+        self.añadir_caja_a_escena_de_planificacion(pose_techo, self.techo_name, self.techo_size)
+        
+    def añadir_pared_y(self) -> None:
+        pose_pared = Pose()
+
+        # Posición del centro de la pared
+        pose_pared.position.x = 0.0
+        pose_pared.position.y = self.wall_center_y
+        pose_pared.position.z = self.wall_center_z
+
+        # Sin rotación (alineada con los ejes del mundo)
+        pose_pared.orientation.w = 1.0
+
+        self.añadir_caja_a_escena_de_planificacion(
+            pose_pared,
+            self.wall_name,
+            self.wall_size
+        )
 
     def suelo_top_z(self) -> float:
         return float(self.floor_center_z + self.floor_size[2] / 2.0)
+    
+    def obtener_pose_actual(self):
+        return self.group.get_current_pose()
+
 
     def añadir_aruco_como_plano(self,*,x: float,y: float,name: str = "aruco_marker",size_xy: float = 0.03, thickness: float = 0.002,z_epsilon: float = 0.005) -> None:
         """

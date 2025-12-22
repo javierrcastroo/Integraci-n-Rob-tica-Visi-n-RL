@@ -57,14 +57,14 @@ class RobotAttackExecutor:
         # Pinza y alturas de pick/place
         # -------------------------
         # Anchuras típicas RG2: ajusta a tu pinza real si hace falta
-        self.gripper_open_width = float(rospy.get_param("~gripper_open_width", 0.08))
-        self.gripper_closed_width = float(rospy.get_param("~gripper_closed_width", 0.0))
-        self.gripper_force = float(rospy.get_param("~gripper_force", 40.0))
+        self.gripper_open_width = float(rospy.get_param("~gripper_open_width", 75))
+        self.gripper_closed_width = float(rospy.get_param("~gripper_closed_width", 2))
+        self.gripper_force = float(rospy.get_param("~gripper_force", 20.0))
 
         # Pick munición: bajar "casi hasta el suelo"
-        self.pick_clearance_m = float(rospy.get_param("~pick_clearance_m", 0.01))  # 1 cm sobre el suelo
+        self.pick_clearance_m = float(rospy.get_param("~pick_clearance_m", 0.03))  # 3 cm sobre el suelo
 
-        # Place en tablero: dejar 5 cm sobre el suelo (tal como pides)
+        # Place en tablero: dejar 5 cm sobre el suelo 
         self.place_clearance_m = float(rospy.get_param("~place_clearance_m", 0.05))  # 5 cm sobre el suelo
 
         # Control
@@ -95,6 +95,8 @@ class RobotAttackExecutor:
         self.ammo_available: List[Tuple[float, float]] = []
 
         if self.move_to_initial:
+            rospy.loginfo("Moviendo a la posición inicial")
+            #self._gripper_close()
             self._move_to_initial_position()
 
         # --- CAMBIO: log coherente con el Z que realmente usas ---
@@ -265,7 +267,7 @@ class RobotAttackExecutor:
             pose,
             wait=True,
             pasos=200,
-            z_constante=pose.position.z,
+            z_constante=None,
             eef_step=0.0075,
             intentos=4,
         )
@@ -590,24 +592,20 @@ class RobotAttackExecutor:
         return p
 
     def _gripper_open(self) -> bool:
-        ok = self.control.mover_pinza(self.gripper_open_width, self.gripper_force)
-        if not ok:
-            rospy.logwarn("[robot_attack_executor] Falló abrir pinza")
-        return bool(ok)
+        self.control.mover_pinza(self.gripper_open_width, self.gripper_force)
+ 
 
     def _gripper_close(self) -> bool:
-        ok = self.control.mover_pinza(self.gripper_closed_width, self.gripper_force)
-        if not ok:
-            rospy.logwarn("[robot_attack_executor] Falló cerrar pinza")
-        return bool(ok)
+        self.control.mover_pinza(self.gripper_closed_width, self.gripper_force)
 
     def _pick_ammo_sequence(self, ammo_xy: Tuple[float, float]) -> bool:
         """
         Secuencia:
           1) ir a munición en hover
-          2) bajar casi al suelo
-          3) cerrar pinza
-          4) subir a hover
+          2) abrir la pinza
+          3) bajar casi al suelo
+          4) cerrar pinza
+          5) subir a hover
         """
         hover_pose = self._ammo_xy_to_hover_pose(ammo_xy)
         hover_pose.position.z = self._hover_z()
@@ -615,22 +613,28 @@ class RobotAttackExecutor:
         rospy.loginfo("[robot_attack_executor] [PICK] Ir a munición (hover)")
         if not self._move_linear(hover_pose, context="ammo_hover"):
             return False
-
-        down_pose = self._pose_with_z(hover_pose, self._pick_z_near_floor())
-        rospy.loginfo(
-            "[robot_attack_executor] [PICK] Bajar a z=%.3f (suelo_top=%.3f, clearance=%.3f)",
-            down_pose.position.z, self._floor_top_z(), self.pick_clearance_m
-        )
-        if not self._move_linear(down_pose, context="ammo_down"):
-            return False
+        
+        rospy.loginfo("[robot_attack_executor] [PLACE] Abrir pinza")
+        self._gripper_open()
+        
+        rospy.sleep(1)
+        
+        rospy.loginfo("[robot_attack_executor] Bajando en z")
+        pose_actual = self.control.pose_actual()
+        pose_actual.position.z -= 0.05
+        self.control.mover_trayectoria([pose_actual])
 
         rospy.loginfo("[robot_attack_executor] [PICK] Cerrar pinza")
-        if not self._gripper_close():
-            return False
+        self._gripper_close()
+        
+        rospy.sleep(1)
 
-        rospy.loginfo("[robot_attack_executor] [PICK] Subir a hover")
-        if not self._move_linear(hover_pose, context="ammo_up"):
-            return False
+        rospy.loginfo("[robot_attack_executor] Subiendo en z")
+        pose_actual = self.control.pose_actual()
+        pose_actual.position.z += 0.05
+        self.control.mover_trayectoria([pose_actual])
+        
+        rospy.sleep(1)
 
         return True
 
@@ -649,21 +653,22 @@ class RobotAttackExecutor:
         if not self._move_linear(hover_pose, context="cell_hover"):
             return False
 
-        down_pose = self._pose_with_z(hover_pose, self._place_z_5cm_over_floor())
-        rospy.loginfo(
-            "[robot_attack_executor] [PLACE] Bajar a z=%.3f (suelo_top=%.3f, clearance=%.3f)",
-            down_pose.position.z, self._floor_top_z(), self.place_clearance_m
-        )
-        if not self._move_linear(down_pose, context="cell_down"):
-            return False
+        rospy.loginfo("[robot_attack_executor] Bajando en z")
+        pose_actual = self.control.pose_actual()
+        pose_actual.position.z -= 0.01
+        self.control.mover_trayectoria([pose_actual])
 
         rospy.loginfo("[robot_attack_executor] [PLACE] Abrir pinza")
-        if not self._gripper_open():
-            return False
+        self._gripper_open()
+        
+        rospy.sleep(1)
 
-        rospy.loginfo("[robot_attack_executor] [PLACE] Subir a hover")
-        if not self._move_linear(hover_pose, context="cell_up"):
-            return False
+        rospy.loginfo("[robot_attack_executor] Subiendo en z")
+        pose_actual = self.control.pose_actual()
+        pose_actual.position.z += 0.01
+        self.control.mover_trayectoria([pose_actual])
+        
+        rospy.sleep(1)
 
         return True
 
