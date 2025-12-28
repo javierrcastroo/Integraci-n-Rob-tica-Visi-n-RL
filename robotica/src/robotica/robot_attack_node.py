@@ -397,33 +397,6 @@ class RobotAttackExecutor:
                 #self.board_request_pub.publish(String("post_robot_attack"))
                 #rospy.loginfo("[robot_attack_executor] Petición de captura enviada tras mover el robot")
 
-    # -------------------------
-    # Debug helpers
-    # -------------------------
-
-    def _log_triangulation(
-        self, *, x_board: float, y_board: float, x_base: float, y_base: float
-    ) -> None:
-        """Emite trazas con las coordenadas relevantes para depuración."""
-
-        rospy.loginfo(
-            "[robot_attack_executor][debug] robot->aruco: (x=%.3f, y=%.3f, yaw=%.3f rad)",
-            self.aruco_origin_x,
-            self.aruco_origin_y,
-            self.aruco_yaw,
-        )
-
-        rospy.loginfo(
-            "[robot_attack_executor][debug] aruco->ficha: (x=%.3f, y=%.3f)",
-            x_board,
-            y_board,
-        )
-
-        rospy.loginfo(
-            "[robot_attack_executor][debug] robot->ficha: (x=%.3f, y=%.3f)",
-            x_base,
-            y_base,
-        )
 
     def board_layout_cb(self, msg: String) -> None:
         try:

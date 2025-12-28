@@ -65,10 +65,6 @@ class LayoutAccumulator:
             }
         )
 
-    def _flip_cell(self, cell, board_size):
-        c, r = int(cell[0]), int(cell[1])
-        return (c,board_size - 1 - r)
-
     def push(self, layouts: List[dict]) -> None:
         self.frame_count += 1
         for layout in layouts:
@@ -81,11 +77,9 @@ class LayoutAccumulator:
             n = int(layout.get("board_size") or entry.get("board_size") or 5)
             for cell in layout.get("ship_two_cells", []):
                 cell = tuple(cell)
-                cell = self._flip_cell(cell, n)
                 entry["ship_two_counts"][cell] += 1
             for cell in layout.get("ship_one_cells", []):
                 cell = tuple(cell)
-                cell = self._flip_cell(cell, n)
                 entry["ship_one_counts"][cell] += 1
 
             for det in layout.get("ship_two_detections", []):
@@ -586,7 +580,7 @@ class BoardMainDebug:
             )
 
             # =========================
-            # VISUAL DEBUG: overlay casillas (x_m,y_m)
+            # VISUAL DEBUG
             # =========================
             try:
                 if layouts and board_state.GLOBAL_ORIGIN is not None:
@@ -621,6 +615,49 @@ class BoardMainDebug:
                         cv2.putText(vis, txt1, (cx + 3, cy - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.32, (255, 255, 255), 1)
                         cv2.putText(vis, txt2, (cx + 3, cy + 2), cv2.FONT_HERSHEY_SIMPLEX, 0.32, (255, 255, 255), 1)
                         cv2.putText(vis, txt3, (cx + 3, cy + 12), cv2.FONT_HERSHEY_SIMPLEX, 0.32, (255, 255, 255), 1)
+
+                ammo_global = layouts[0].get("ammo_global_detections", []) if layouts else []
+                if ammo_global and board_state.GLOBAL_ORIGIN is not None:
+                    gx, gy = map(int, board_state.GLOBAL_ORIGIN)
+
+                    # orden estable para que el id sea consistente (izq->der, arriba->abajo)
+                    ammo_global_sorted = sorted(
+                        ammo_global,
+                        key=lambda det: (
+                            det.get("pixel", det.get("offset_from_origin", (0, 0)))[0],
+                            det.get("pixel", det.get("offset_from_origin", (0, 0)))[1],
+                        ),
+                    )
+
+                    for idx, det in enumerate(ammo_global_sorted):
+                        px = det.get("pixel")  # (x_px, y_px) en imagen original
+                        xy = det.get("xy_aruco")  # (x_m, y_m) respecto al ArUco (en metros)
+
+                        if px is None:
+                            continue
+
+                        ax, ay = int(px[0]), int(px[1])
+
+                        # punto munición
+                        cv2.circle(vis, (ax, ay), 5, (255, 255, 255), -1)
+
+                        # vector ArUco -> munición
+                        cv2.line(vis, (gx, gy), (ax, ay), (200, 200, 200), 1)
+
+                        # texto: id + xy en cm si existe
+                        txt1 = f"AMMO#{idx}"
+                        if xy is not None and len(xy) == 2:
+                            x_cm = float(xy[0]) * 100.0
+                            y_cm = float(xy[1]) * 100.0
+                            txt2 = f"x{x_cm:.2f}"
+                            txt3 = f"y{y_cm:.2f}"
+                        else:
+                            txt2 = "x?"
+                            txt3 = "y?"
+
+                        cv2.putText(vis, txt1, (ax + 3, ay - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.32, (255, 255, 255), 1)
+                        cv2.putText(vis, txt2, (ax + 3, ay + 2), cv2.FONT_HERSHEY_SIMPLEX, 0.32, (255, 255, 255), 1)
+                        cv2.putText(vis, txt3, (ax + 3, ay + 12), cv2.FONT_HERSHEY_SIMPLEX, 0.32, (255, 255, 255), 1)
             except Exception as exc:
                 print("[WARN] overlay debug failed:", exc)
 
@@ -668,10 +705,6 @@ class BoardMainDebug:
         self.cap.release()
         cv2.destroyAllWindows()
 
-    def _flip_cell(self, cell, board_size):
-        c, r = int(cell[0]), int(cell[1])
-        return (c, board_size - 1 - r)
-
     def _flip_rows_layout(self, layout: dict) -> dict:
         """
         Fuerza convención: (0,0) arriba-izquierda de pantalla.
@@ -687,7 +720,7 @@ class BoardMainDebug:
         # Listas de celdas
         for key in ("ship_two_cells", "ship_one_cells"):
             cells = out.get(key, [])
-            out[key] = [self._flip_cell(c, n) for c in cells]
+            out[key] = [tuple(c) for c in cells]
 
         # Lista "cells" con type
         if "cells" in out and isinstance(out["cells"], list):
@@ -706,8 +739,6 @@ class BoardMainDebug:
             for e in lst:
                 try:
                     cell = e.get("cell")
-                    if cell is not None:
-                        cell = self._flip_cell(cell, n)
                     new_e = dict(e)
                     new_e["cell"] = cell
                     new_lst.append(new_e)

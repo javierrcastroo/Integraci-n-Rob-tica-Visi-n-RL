@@ -291,13 +291,18 @@ def _map_points_to_cells(points, H_warp, warp_size):
     point_cell_pairs = []
     for (wx, wy), (px, py) in zip(warped, points):
         col = _clip_cell_index(int(np.floor(wx / cell_size)), n)
-        row_raw = _clip_cell_index(int(np.floor(wy / cell_size)), n)
-        row = (n - 1) - row_raw
-        cell = (row, col)
+        row = _clip_cell_index(int(np.floor(wy / cell_size)), n)
+        col2, row2 = _rot90_right(col, row, n)
+        cell = (col2, row2)
         cells.append(cell)
-        labels.append(_format_cell_label(row, col))
+        labels.append(_format_cell_label(col, row))
         point_cell_pairs.append({"cell": cell, "pixel": (int(px), int(py))})
     return cells, labels, point_cell_pairs
+
+@staticmethod
+def _rot90_right(col: int, row: int, n: int) -> tuple[int, int]:
+    # (c,r) -> (n-1-r, c)
+    return (n - 1 - row, col)
 
 
 def _build_detection_entries(point_cell_pairs):
@@ -370,8 +375,9 @@ def _annotate_detections(vis_img, warp_img, slot_name, entries):
         )
 
 
-def _format_cell_label(row, col):
-    return f"{chr(ord('A') + col)}{row + 1}"
+def _format_cell_label(col, row):
+    col2, row2 = _rot90_right(col, row, 5)
+    return f"{chr(ord('A') + col2)}{row2 + 1}"
 
 
 def _clip_cell_index(idx, n):
