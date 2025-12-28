@@ -40,6 +40,7 @@ class LayoutAccumulator:
     def __init__(self, target_frames: int):
         self.target_frames = int(target_frames)
         self.reset()
+        self.cell_cm = 3.85
 
     def reset(self) -> None:
         self.frame_count = 0
@@ -59,8 +60,14 @@ class LayoutAccumulator:
                 "ammo_global_pixels": [],
                 "ammo_global_xy": [],
                 "board_corners_aruco": [],  # lista de frames; cada frame: [(x,y)*4]
+                "ratio_cm_per_pix_list": [],
+                "board_quad_pixel_frames": [],
             }
         )
+
+    def _flip_cell(self, cell, board_size):
+        c, r = int(cell[0]), int(cell[1])
+        return (c,board_size - 1 - r)
 
     def push(self, layouts: List[dict]) -> None:
         self.frame_count += 1
@@ -71,12 +78,15 @@ class LayoutAccumulator:
             if layout.get("board_size") is not None:
                 entry["board_size"] = layout["board_size"]
 
+            n = int(layout.get("board_size") or entry.get("board_size") or 5)
             for cell in layout.get("ship_two_cells", []):
-                entry["ship_two_counts"][tuple(cell)] += 1
+                cell = tuple(cell)
+                cell = self._flip_cell(cell, n)
+                entry["ship_two_counts"][cell] += 1
             for cell in layout.get("ship_one_cells", []):
-                entry["ship_one_counts"][tuple(cell)] += 1
-            for cell in layout.get("ammo_cells", []):
-                entry["ammo_counts"][tuple(cell)] += 1
+                cell = tuple(cell)
+                cell = self._flip_cell(cell, n)
+                entry["ship_one_counts"][cell] += 1
 
             for det in layout.get("ship_two_detections", []):
                 cell = det.get("cell")
@@ -101,18 +111,6 @@ class LayoutAccumulator:
                     entry["ship_one_pixels"][cell].append(tuple(pixel))
                 if offset is not None:
                     entry["ship_one_offsets"][cell].append(tuple(offset))
-
-            for det in layout.get("ammo_detections", []):
-                cell = det.get("cell")
-                if cell is None:
-                    continue
-                cell = tuple(cell)
-                pixel = det.get("pixel")
-                offset = det.get("offset_from_origin")
-                if pixel is not None:
-                    entry["ammo_pixels"][cell].append(tuple(pixel))
-                if offset is not None:
-                    entry["ammo_offsets"][cell].append(tuple(offset))
 
             corners = layout.get("board_corners_aruco")
             if corners and len(corners) == 4:
@@ -142,6 +140,25 @@ class LayoutAccumulator:
                     if xy is not None:
                         entry["ammo_global_xy"][idx].append(tuple(xy))
 
+            # ratio
+            ratio = layout.get("ratio_cm_per_pix")
+            if ratio is not None:
+                try:
+                    entry["ratio_cm_per_pix_list"].append(float(ratio))
+                except Exception:
+                    pass
+
+            # quad en píxel (4 puntos)
+            quad = layout.get("board_quad_pixel")
+            if quad is not None and len(quad) == 4:
+                try:
+                    q = np.array(quad, dtype=np.float32)
+                    # fuerza orden canónico (TL, TR, BR, BL)
+                    q_ord = board_tracker.order_points(q)
+                    entry["board_quad_pixel_frames"].append([tuple(map(float, p)) for p in q_ord])
+                except Exception:
+                    pass
+
     def progress(self) -> float:
         if self.target_frames <= 0:
             return 1.0
@@ -161,15 +178,13 @@ class LayoutAccumulator:
 
     @staticmethod
     def _cells_with_type(
-        ship_two_cells: List[Cell], ship_one_cells: List[Cell], ammo_cells: List[Cell]
+        ship_two_cells: List[Cell], ship_one_cells: List[Cell]
     ) -> List[dict]:
         cells = []
-        for r, c in ship_two_cells:
-            cells.append({"row": r, "col": c, "type": "ship_two"})
-        for r, c in ship_one_cells:
-            cells.append({"row": r, "col": c, "type": "ship_one"})
-        for r, c in ammo_cells:
-            cells.append({"row": r, "col": c, "type": "ammo"})
+        for c, r in ship_two_cells:
+            cells.append({"col": c, "row": r, "type": "ship_two"})
+        for c, r in ship_one_cells:
+            cells.append({"col": c, "row": r,"type": "ship_one"})
         return cells
 
     def build_layouts(self) -> List[dict]:
@@ -182,9 +197,6 @@ class LayoutAccumulator:
             ]
             ship_one_cells = [
                 cell for cell, count in entry["ship_one_counts"].items() if count >= threshold
-            ]
-            ammo_cells = [
-                cell for cell, count in entry["ammo_counts"].items() if count >= threshold
             ]
 
             ship_two_positions = []
@@ -212,16 +224,6 @@ class LayoutAccumulator:
                 )
 
             ammo_positions = []
-            for cell in ammo_cells:
-                ammo_positions.append(
-                    {
-                        "cell": cell,
-                        "mean_pixel": self._average_point(entry["ammo_pixels"].get(cell, [])),
-                        "mean_offset_from_origin": self._average_point(
-                            entry["ammo_offsets"].get(cell, [])
-                        ),
-                    }
-                )
 
             ammo_global_positions = []
             for idx, xy_list in enumerate(entry["ammo_global_xy"]):
@@ -257,18 +259,37 @@ class LayoutAccumulator:
             else:
                 mean_board_corners = []
 
+            # promedio del ratio
+            ratio_list = entry.get("ratio_cm_per_pix_list", [])
+            mean_ratio = None
+            if ratio_list:
+                mean_ratio = sum(ratio_list) / float(len(ratio_list))
+
+            # promedio del quad
+            quad_frames = entry.get("board_quad_pixel_frames", [])
+            mean_quad = None
+            if quad_frames:
+                mean_quad = []
+                for k in range(4):
+                    xs = [q[k][0] for q in quad_frames]
+                    ys = [q[k][1] for q in quad_frames]
+                    mean_quad.append((sum(xs) / len(xs), sum(ys) / len(ys)))
+                mean_quad = board_tracker.order_points(np.array(mean_quad, dtype=np.float32)).tolist()
+
             layout = {
                 "name": name,
                 "board_size": entry["board_size"],
                 "ship_two_cells": sorted(ship_two_cells),
                 "ship_one_cells": sorted(ship_one_cells),
-                "ammo_cells": sorted(ammo_cells),
-                "cells": self._cells_with_type(ship_two_cells, ship_one_cells, ammo_cells),
+                "cells": self._cells_with_type(ship_two_cells, ship_one_cells),
                 "ship_two_positions": ship_two_positions,
                 "ship_one_positions": ship_one_positions,
                 "ammo_positions": ammo_positions,
                 "ammo_points_aruco": ammo_global_positions,
                 "board_corners_aruco": mean_board_corners,
+                "ratio_cm_per_pix": mean_ratio,
+                "board_quad_pixel": mean_quad,
+                "warp_size_px": WARP_SIZE,  # o el warp_size real si lo pasas
             }
             layouts.append(layout)
 
@@ -287,6 +308,7 @@ class BoardMainDebug:
         self.status_lines = ["Ajusta HSV y pulsa 's' para capturar/volcar JSON."]
         self.accumulator: Optional[LayoutAccumulator] = None
         self.capture_reason = "manual"
+        self.cell_cm = 3.85
 
         self.mtx = None
         self.dist = None
@@ -325,37 +347,126 @@ class BoardMainDebug:
             "No muevas el tablero.",
         ]
 
+    @staticmethod
+    def _rot90_right(col: int, row: int, n: int) -> tuple[int, int]:
+        # (c,r) -> (n-1-r, c)
+        return (n - 1 - row, col)
+
+
     def _with_cartesian_coords(self, layout: dict) -> dict:
         board_size = layout.get("board_size") or board_tracker.BOARD_SQUARES
-        cell_size_m = float(getattr(board_tracker, "SQUARE_SIZE_CM", 3.7)) / 100.0
-
-        cell_centers = []
-        for row in range(int(board_size)):
-            for col in range(int(board_size)):
-                x_aruco = (col + 0.5) * cell_size_m
-                y_aruco = (row + 0.5) * cell_size_m
-                cell_centers.append({"row": row, "col": col, "xy_aruco": [x_aruco, y_aruco]})
-
-        ammo_centers = []
-        for cell in layout.get("ammo_cells", []):
-            try:
-                row, col = int(cell[0]), int(cell[1])
-            except Exception:
-                continue
-            x_aruco = (col + 0.5) * cell_size_m
-            y_aruco = (row + 0.5) * cell_size_m
-            ammo_centers.append({"row": row, "col": col, "xy_aruco": [x_aruco, y_aruco]})
+        origin = board_state.GLOBAL_ORIGIN
 
         layout = dict(layout)
+
+        quad = layout.get("board_quad_pixel")
+        warp_size = float(layout.get("warp_size_px", WARP_SIZE))
+        ratio_cm_per_pix = layout.get("ratio_cm_per_pix")  # ya lo metes en process_board()
+
+        cell_centers = []
+
+        if origin is not None and quad is not None and ratio_cm_per_pix is not None:
+            # reconstruye H_warp igual que en process_single_board
+            src = np.array(quad, dtype=np.float32)
+            dst = np.array(
+                [[0, 0],
+                 [warp_size - 1, 0],
+                 [warp_size - 1, warp_size - 1],
+                 [0, warp_size - 1]],
+                dtype=np.float32,
+            )
+            H_warp = cv2.getPerspectiveTransform(src, dst)
+            H_inv = np.linalg.inv(H_warp)
+
+            n = int(board_size)
+            cell_size_px = warp_size / n
+            ox, oy = origin
+
+            for col in range(n):
+                for row in range(n):
+                    # centro de celda en warp
+                    cxw = (col + 0.5) * cell_size_px
+                    cyw = (row + 0.5) * cell_size_px
+
+                    ctr_warp = np.array([[[cxw, cyw]]], dtype=np.float32)
+                    ctr_img = cv2.perspectiveTransform(ctr_warp, H_inv).reshape(-1, 2)[0]
+                    dx_px = float(ctr_img[0]) - float(ox)
+                    dy_px = float(ctr_img[1]) - float(oy)
+
+                    # px -> cm -> m
+                    x_m = (dx_px * float(ratio_cm_per_pix)) / 100.0
+                    y_m = (dy_px * float(ratio_cm_per_pix)) / 100.0
+
+                    col2, row2 = self._rot90_right(col, row, n)
+                    cell_centers.append({"col": col2, "row": row2, "xy_aruco": [x_m, y_m], "ctr_img_px": [float(ctr_img[0]), float(ctr_img[1])]})
+
+        else:
+            # fallback: tu rejilla ideal (lo que tenías), pero ya NO la llames "aruco"
+            n = int(board_size)
+            cell_size_m = self.cell_cm / 100.0
+            for col in range(n):
+                for row in range(n):
+                    cell_centers.append(
+                        {"col": col, "row": row, "xy_aruco": [(col + 0.5) * cell_size_m, (row + 0.5) * cell_size_m]})
+
         layout["cell_centers_aruco"] = cell_centers
-        layout["ammo_centers_aruco"] = ammo_centers
-        layout["ammo_points_aruco"] = layout.get("ammo_points_aruco", [])
-        layout["board_corners_aruco"] = layout.get("board_corners_aruco", [])
-        layout["cell_size_m"] = cell_size_m
+        layout["cell_size_m"] = self.cell_cm / 100.0
         return layout
 
+        # listas de pares [c,r]
+        for key in ("ship_two_cells", "ship_one_cells"):
+            out[key] = [list(rot(int(c), int(r))) for c, r in out.get(key, [])]
+
+        # lista "cells" (dict)
+        new_cells = []
+        for e in out.get("cells", []) or []:
+            try:
+                c, r = int(e["col"]), int(e["row"])
+                c2, r2 = rot(c, r)
+                ne = dict(e);
+                ne["col"] = c2;
+                ne["row"] = r2
+                new_cells.append(ne)
+            except Exception:
+                new_cells.append(e)
+        out["cells"] = new_cells
+
+        # positions con "cell"
+        for key in ("ship_two_positions", "ship_one_positions", "ammo_positions"):
+            new_lst = []
+            for e in out.get(key, []) or []:
+                try:
+                    c, r = map(int, e["cell"])
+                    c2, r2 = rot(c, r)
+                    ne = dict(e);
+                    ne["cell"] = [c2, r2]
+                    new_lst.append(ne)
+                except Exception:
+                    new_lst.append(e)
+            out[key] = new_lst
+
+        # cell_centers_aruco: solo indices
+        new_centers = []
+        for e in out.get("cell_centers_aruco", []) or []:
+            try:
+                c, r = int(e["col"]), int(e["row"])
+                c2, r2 = rot(c, r)
+                ne = dict(e);
+                ne["col"] = c2;
+                ne["row"] = r2
+                new_centers.append(ne)
+            except Exception:
+                new_centers.append(e)
+        out["cell_centers_aruco"] = new_centers
+
+        return out
+
     def emit_payload_to_terminal(self, layouts: List[dict]) -> None:
-        payload = {"boards": [self._with_cartesian_coords(l) for l in layouts]}
+        boards = []
+        for l in layouts:
+            l2 = self._with_cartesian_coords(l)
+            boards.append(l2)
+        payload = {"boards": boards}
         print("\n" + "=" * 25 + " JSON QUE SE ENVIARIA " + "=" * 25)
         print(json.dumps(payload, indent=2, default=self.json_default))
         print("=" * 78 + "\n")
@@ -462,7 +573,8 @@ class BoardMainDebug:
                 frame = cv2.undistort(frame, self.mtx, self.dist)
 
             # Actualiza GLOBAL_ORIGIN (ArUco) en coordenadas pixel
-            aruco_utils.update_global_origin_from_aruco(frame, aruco_id=3)
+            aruco_utils.update_global_origin_from_aruco(frame, aruco_id=2)
+            print(f"[DBG] GLOBAL_ORIGIN(px) = {board_state.GLOBAL_ORIGIN}")
 
             vis, mask_b, mask_ship2, mask_ship1, mask_m, layouts = bp.process_board(
                 frame,
@@ -470,7 +582,47 @@ class BoardMainDebug:
                 cam_mtx=self.mtx,
                 dist=self.dist,
                 warp_size=WARP_SIZE,
+                cell_cm=self.cell_cm
             )
+
+            # =========================
+            # VISUAL DEBUG: overlay casillas (x_m,y_m)
+            # =========================
+            try:
+                if layouts and board_state.GLOBAL_ORIGIN is not None:
+                    # usa el layout "ya enriquecido"
+                    l_dbg = self._with_cartesian_coords(layouts[0])
+
+                    gx, gy = map(int, board_state.GLOBAL_ORIGIN)
+                    # pinta el origen
+                    cv2.circle(vis, (gx, gy), 6, (0, 255, 0), -1)
+
+                    centers = l_dbg.get("cell_centers_aruco", [])
+                    for e in centers:
+                        col = int(e["col"]);
+                        row = int(e["row"])
+                        x_m, y_m = e["xy_aruco"]
+                        px = e.get("ctr_img_px")
+                        if not px:
+                            continue
+                        cx, cy = int(px[0]), int(px[1])
+
+                        # punto centro
+                        cv2.circle(vis, (cx, cy), 3, (255, 255, 255), -1)
+
+                        # vector desde ArUco a centro
+                        cv2.line(vis, (gx, gy), (cx, cy), (200, 200, 200), 1)
+
+                        # etiqueta compacta: (c,r) y (x,y) en cm
+                        txt1 = f"(c,r)=({col},{row})"
+                        txt2 = f"x{(x_m * 100):.2f}"
+                        txt3 = f"y{(y_m * 100):.2f}"
+
+                        cv2.putText(vis, txt1, (cx + 3, cy - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.32, (255, 255, 255), 1)
+                        cv2.putText(vis, txt2, (cx + 3, cy + 2), cv2.FONT_HERSHEY_SIMPLEX, 0.32, (255, 255, 255), 1)
+                        cv2.putText(vis, txt3, (cx + 3, cy + 12), cv2.FONT_HERSHEY_SIMPLEX, 0.32, (255, 255, 255), 1)
+            except Exception as exc:
+                print("[WARN] overlay debug failed:", exc)
 
             # Evaluación (igual que antes)
             for layout in layouts:
@@ -515,6 +667,70 @@ class BoardMainDebug:
 
         self.cap.release()
         cv2.destroyAllWindows()
+
+    def _flip_cell(self, cell, board_size):
+        c, r = int(cell[0]), int(cell[1])
+        return (c, board_size - 1 - r)
+
+    def _flip_rows_layout(self, layout: dict) -> dict:
+        """
+        Fuerza convención: (0,0) arriba-izquierda de pantalla.
+        Si actualmente row está invertida (sale 4 cuando debería 0), aplicamos:
+            row_new = (N-1) - row_old
+        Se aplica a ship_*_cells, cells[] y a *_positions[].cell
+        También rehace cell_centers_aruco en coherencia.
+        """
+        n = int(layout.get("board_size") or board_tracker.BOARD_SQUARES or 5)
+
+        out = dict(layout)
+
+        # Listas de celdas
+        for key in ("ship_two_cells", "ship_one_cells"):
+            cells = out.get(key, [])
+            out[key] = [self._flip_cell(c, n) for c in cells]
+
+        # Lista "cells" con type
+        if "cells" in out and isinstance(out["cells"], list):
+            new_cells = []
+            for e in out["cells"]:
+                try:
+                    new_cells.append({**e, "row": n - 1 - int(e["row"])})
+                except Exception:
+                    new_cells.append(e)
+            out["cells"] = new_cells
+
+        # Positions: ship_two_positions, ship_one_positions, ammo_positions
+        for key in ("ship_two_positions", "ship_one_positions", "ammo_positions"):
+            lst = out.get(key, [])
+            new_lst = []
+            for e in lst:
+                try:
+                    cell = e.get("cell")
+                    if cell is not None:
+                        cell = self._flip_cell(cell, n)
+                    new_e = dict(e)
+                    new_e["cell"] = cell
+                    new_lst.append(new_e)
+                except Exception:
+                    new_lst.append(e)
+            out[key] = new_lst
+
+        # cell_centers_aruco (si existe): flip row del índice, pero OJO:
+        # xy_aruco ya está en metros en el frame del ArUco; no debe cambiar.
+        # Solo cambiamos el "row" asociado a ese xy.
+        centers = out.get("cell_centers_aruco", [])
+        if centers:
+            new_centers = []
+            for e in centers:
+                try:
+                    new_centers.append({**e, "row": n - 1 - int(e["row"])})
+                except Exception:
+                    new_centers.append(e)
+            out["cell_centers_aruco"] = new_centers
+
+        return out
+
+
 
 
 def main() -> None:

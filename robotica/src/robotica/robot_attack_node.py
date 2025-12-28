@@ -39,7 +39,6 @@ class RobotAttackExecutor:
         self.board_origin_dy = float(rospy.get_param("~board_origin_dy", 0.0))
 
         # Tamaño de celda, alturas y obstáculos
-        self.cell_size = float(rospy.get_param("~cell_size", 0.037))
         self.board_surface_z = float(rospy.get_param("~board_surface_z", 0.0))
         self.ship_box_size = float(rospy.get_param("~ship_box_size", 0.025))
         self.ammo_box_size = float(rospy.get_param("~ammo_box_size", self.ship_box_size))
@@ -52,6 +51,8 @@ class RobotAttackExecutor:
         self.board_obstacle_thickness = float(rospy.get_param("~board_obstacle_thickness", 0.002))
         self.board_obstacle_z_epsilon = float(rospy.get_param("~board_obstacle_z_epsilon", 0.005))
         self.board_obstacle_name = str(rospy.get_param("~board_obstacle_name", "board_plane"))
+
+        self.cell_xy_aruco: Dict[Cell, Tuple[float, float]] = {}
 
         # -------------------------
         # Pinza y alturas de pick/place
@@ -151,13 +152,12 @@ class RobotAttackExecutor:
         return x_base, y_base
 
     def _cell_xy_base(self, cell: Cell) -> Tuple[float, float]:
-        if cell in self.cell_xy_base:
-            return self.cell_xy_base[cell]
-
-        row, col = cell
-        x_board = col * self.cell_size
-        y_board = row * self.cell_size
-        return self._board_to_base_xy(x_board, y_board)
+        if cell not in self.cell_xy_base:
+            raise RuntimeError(
+                f"[robot_attack_executor] No existe cell_xy_base para {cell}. "
+                "¿Ha llegado board_layout?"
+            )
+        return self.cell_xy_base[cell]
 
     def _load_aruco_pose_from_param(self) -> None:
         """Carga la pose inicial del ArUco desde ``Pose_Actual``.
@@ -322,16 +322,45 @@ class RobotAttackExecutor:
         row = int(row)
         col = int(col)
 
-        # Coordenadas tablero (Aruco -> ficha) y triangulación hasta el robot
-        x_board = col * self.cell_size
-        y_board = row * self.cell_size
-        x_base, y_base = self._cell_xy_base((row, col))
+        cell = (col, row)
 
-        self._log_triangulation(
-            x_board=x_board,
-            y_board=y_board,
-            x_base=x_base,
-            y_base=y_base,
+        # 1) robot -> aruco
+        rospy.loginfo(
+            "[robot_attack_executor][triangulation] robot->aruco: "
+            "(x=%.3f, y=%.3f, yaw=%.3f rad)",
+            self.aruco_origin_x,
+            self.aruco_origin_y,
+            self.aruco_yaw,
+        )
+
+        # 2) aruco -> casilla
+        if cell not in self.cell_xy_aruco:
+            rospy.logerr(
+                "[robot_attack_executor][triangulation] No hay xy_aruco para celda %s",
+                cell,
+            )
+            return
+
+        x_aruco, y_aruco = self.cell_xy_aruco[cell]
+        rospy.loginfo(
+            "[robot_attack_executor][triangulation] aruco->cell: "
+            "(x=%.3f, y=%.3f)",
+            x_aruco,
+            y_aruco,
+        )
+
+        # 3) robot -> casilla (TRIANGULACIÓN FINAL)
+        try:
+            x_base, y_base = self._cell_xy_base(cell)
+        except RuntimeError as exc:
+            rospy.logerr(str(exc))
+            return
+
+        rospy.loginfo(
+            "[robot_attack_executor][triangulation] robot->cell: "
+            "(x=%.3f, y=%.3f)",
+            x_base,
+            y_base,
         )
 
         # -------------------------
@@ -351,7 +380,7 @@ class RobotAttackExecutor:
         # 2) PLACE en la casilla (ataque)
         # -------------------------
         rospy.loginfo("[robot_attack_executor] Secuencia PLACE en casilla iniciada.")
-        ok = self._place_on_cell_sequence((row, col))  # hover -> bajar (5 cm sobre suelo) -> abrir -> subir
+        ok = self._place_on_cell_sequence((col, row))  # hover -> bajar (5 cm sobre suelo) -> abrir -> subir
         if not ok:
             rospy.logwarn("[robot_attack_executor] Falló PLACE en casilla. Abortando.")
             return
@@ -452,8 +481,8 @@ class RobotAttackExecutor:
         result: List[Cell] = []
         for cell in cells:
             try:
-                row, col = cell
-                result.append((int(row), int(col)))
+                col, row = cell
+                result.append((int(col), int(row)))
             except Exception:
                 continue
         return result
@@ -464,8 +493,7 @@ class RobotAttackExecutor:
         """Convierte los centros enviados por visión (frame ArUco) a base_link."""
 
         result: Dict[Cell, Tuple[float, float]] = {}
-        if cell_size_m is not None:
-            self.cell_size = cell_size_m
+        self.cell_xy_aruco.clear()
 
         for entry in centers_aruco or []:
             try:
@@ -477,15 +505,15 @@ class RobotAttackExecutor:
             except Exception:
                 continue
 
+            self.cell_xy_aruco[(col, row)] = (x_aruco, y_aruco)
+
             x_base, y_base = self._aruco_to_base_xy(x_aruco, y_aruco)
-            result[(row, col)] = (x_base, y_base)
+            result[(col, row)] = (x_base, y_base)
 
         return result
 
     def _build_ammo_base_list(self, layout: dict) -> List[Tuple[float, float]]:
         ammo_points = layout.get("ammo_points_aruco")
-        if not ammo_points:
-            ammo_points = layout.get("ammo_centers_aruco", [])
 
         ammo_base: List[Tuple[float, float]] = []
         for entry in ammo_points or []:
@@ -499,11 +527,8 @@ class RobotAttackExecutor:
                 continue
             ammo_base.append(self._aruco_to_base_xy(x_aruco, y_aruco))
 
-        if ammo_base:
-            return ammo_base
+        return ammo_base
 
-        ammo_cells = self._extract_cells(layout.get("ammo_cells", []))
-        return [self._cell_xy_base(cell) for cell in ammo_cells]
 
     def _update_obstacles(
         self, ship_cells: List[Cell], ammo_cells: List[Tuple[float, float]]
@@ -515,9 +540,9 @@ class RobotAttackExecutor:
         self.ship_boxes.clear()
         self.ammo_boxes.clear()
 
-        for row, col in ship_cells:
-            name = f"ship_r{row}_c{col}"
-            pose_caja = self._cell_to_box_pose((row, col))
+        for col, row in ship_cells:
+            name = f"ship_r{col}_c{row}"
+            pose_caja = self._cell_to_box_pose((col, row))
             self.control.añadir_caja_a_escena_de_planificacion(
                 pose_caja, name, tamaño=(self.ship_box_size,) * 3
             )

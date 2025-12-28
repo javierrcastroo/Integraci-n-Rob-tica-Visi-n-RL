@@ -7,7 +7,7 @@ import board_state
 import board_ui
 
 
-def process_board(frame, board_state, cam_mtx=None, dist=None, warp_size=500):
+def process_board(frame, board_state, cam_mtx=None, dist=None, warp_size=500, cell_cm=None):
     """
     Procesa un único tablero (T1). Si la cámara está rotada o invertida, la
     esquina superior-izquierda de lo que se ve en la imagen sigue siendo la
@@ -44,6 +44,25 @@ def process_board(frame, board_state, cam_mtx=None, dist=None, warp_size=500):
     if boards_found:
         ratio_cm_per_pix = boards_found[0].get("ratio")
         quad = boards_found[0]["quad"]
+
+
+        print(f"[DBG] ratio(from boards_found[0]['ratio']) = {ratio_cm_per_pix}")
+        print(f"[DBG] quad(px) = {quad}")
+
+        # ancho en px (promedio borde superior e inferior)
+        (x0, y0), (x1, y1), (x2, y2), (x3, y3) = quad
+        top = ((x1 - x0) ** 2 + (y1 - y0) ** 2) ** 0.5
+        bottom = ((x2 - x3) ** 2 + (y2 - y3) ** 2) ** 0.5
+        width_px = 0.5 * (top + bottom)
+
+        board_cm = board_tracker.BOARD_SQUARES * cell_cm  # 19.25 cm si 5x5
+        cm_per_px_est = board_cm / width_px
+        px_per_cm_est = width_px / board_cm
+
+        print(f"[DBG] width_px≈{width_px:.2f} | board_cm={board_cm:.2f}")
+        print(f"[DBG] derived cm/px≈{cm_per_px_est:.5f} | px/cm≈{px_per_cm_est:.2f}")
+
+
         board_state["last_quad"] = quad
         board_state["miss"] = 0
         ship_two_mask_show, ship_one_mask_show, layout_info = process_single_board(
@@ -132,6 +151,29 @@ def process_single_board(vis_img, frame_bgr, quad, slot, warp_size=500):
         dtype=np.float32,
     )
     H_warp = cv2.getPerspectiveTransform(src, dst)
+
+    H_inv = np.linalg.inv(H_warp)
+    n = board_tracker.BOARD_SQUARES
+    cell_size = warp_size / n
+
+    # centro de la celda (0,0) en coordenadas warp
+    cxw = 0.5 * cell_size
+    cyw = 0.5 * cell_size
+
+    ctr_warp = np.array([[[cxw, cyw]]], dtype=np.float32)
+    ctr_img = cv2.perspectiveTransform(ctr_warp, H_inv).reshape(-1, 2)[0]
+    print(f"[DBG] cell(0,0) center in image px = ({ctr_img[0]:.2f}, {ctr_img[1]:.2f})")
+
+    if board_state.GLOBAL_ORIGIN is not None:
+        ox, oy = board_state.GLOBAL_ORIGIN
+        dx_px = float(ctr_img[0]) - float(ox)
+        dy_px = float(ctr_img[1]) - float(oy)
+        print(f"[DBG] aruco->cell(0,0) center offset px = ({dx_px:.2f}, {dy_px:.2f})")
+
+        # convierte a cm usando el ratio ya calculado
+        # (si no lo tienes en este scope, pásalo o imprime solo px)
+
+
     warp_img = cv2.warpPerspective(frame_bgr, H_warp, (warp_size, warp_size))
 
     ship_two_pts, ship_two_mask = object_tracker.detect_colored_points_in_board(
@@ -202,6 +244,8 @@ def process_single_board(vis_img, frame_bgr, quad, slot, warp_size=500):
         "ship_two_detections": ship_two_detections,
         "ship_one_detections": ship_one_detections,
         "ammo_detections": ammo_detections,
+        "board_quad_pixel": quad,
+        "warp_size_px": warp_size,
     }
 
     if display_entries:
@@ -247,7 +291,8 @@ def _map_points_to_cells(points, H_warp, warp_size):
     point_cell_pairs = []
     for (wx, wy), (px, py) in zip(warped, points):
         col = _clip_cell_index(int(np.floor(wx / cell_size)), n)
-        row = _clip_cell_index(int(np.floor(wy / cell_size)), n)
+        row_raw = _clip_cell_index(int(np.floor(wy / cell_size)), n)
+        row = (n - 1) - row_raw
         cell = (row, col)
         cells.append(cell)
         labels.append(_format_cell_label(row, col))
