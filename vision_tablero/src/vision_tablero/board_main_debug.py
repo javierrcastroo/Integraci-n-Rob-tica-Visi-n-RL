@@ -37,10 +37,17 @@ Cell = Tuple[int, int]
 
 
 class LayoutAccumulator:
+    """
+    Acumulador (promedio temporal):
+    - ship_two / ship_one por celdas (votes)
+    - corners del tablero en aruco (ya viene en layout_info)
+    - munición GLOBAL (xy_aruco) + pixel/offset para estabilizar IDs
+    - ratio_cm_per_pix y board_quad_pixel (promedio)
+    """
+
     def __init__(self, target_frames: int):
         self.target_frames = int(target_frames)
         self.reset()
-        self.cell_cm = 3.85
 
     def reset(self) -> None:
         self.frame_count = 0
@@ -49,19 +56,20 @@ class LayoutAccumulator:
                 "board_size": None,
                 "ship_two_counts": Counter(),
                 "ship_one_counts": Counter(),
-                "ammo_counts": Counter(),
                 "ship_two_offsets": defaultdict(list),
                 "ship_one_offsets": defaultdict(list),
-                "ammo_offsets": defaultdict(list),
                 "ship_two_pixels": defaultdict(list),
                 "ship_one_pixels": defaultdict(list),
-                "ammo_pixels": defaultdict(list),
+
+                # Global ammo
                 "ammo_global_offsets": [],
                 "ammo_global_pixels": [],
                 "ammo_global_xy": [],
-                "board_corners_aruco": [],  # lista de frames; cada frame: [(x,y)*4]
+
+                # Board geometry
+                "board_corners_aruco": [],       # lista de frames; cada frame: [(x,y)*4]
                 "ratio_cm_per_pix_list": [],
-                "board_quad_pixel_frames": [],
+                "board_quad_pixel_frames": [],   # lista de frames; cada frame: 4 puntos ordenados TL,TR,BR,BL
             }
         )
 
@@ -74,7 +82,6 @@ class LayoutAccumulator:
             if layout.get("board_size") is not None:
                 entry["board_size"] = layout["board_size"]
 
-            n = int(layout.get("board_size") or entry.get("board_size") or 5)
             for cell in layout.get("ship_two_cells", []):
                 cell = tuple(cell)
                 entry["ship_two_counts"][cell] += 1
@@ -82,6 +89,8 @@ class LayoutAccumulator:
                 cell = tuple(cell)
                 entry["ship_one_counts"][cell] += 1
 
+            # detections (pixel/offset) solo para estabilizar promedios/depuración;
+            # luego se eliminarán al minimizar JSON.
             for det in layout.get("ship_two_detections", []):
                 cell = det.get("cell")
                 if cell is None:
@@ -106,10 +115,12 @@ class LayoutAccumulator:
                 if offset is not None:
                     entry["ship_one_offsets"][cell].append(tuple(offset))
 
+            # corners aruco
             corners = layout.get("board_corners_aruco")
             if corners and len(corners) == 4:
                 entry["board_corners_aruco"].append([tuple(c) for c in corners])
 
+            # global ammo detections
             global_ammo = layout.get("ammo_global_detections", [])
             if global_ammo:
                 global_ammo = sorted(
@@ -124,9 +135,11 @@ class LayoutAccumulator:
                         entry["ammo_global_offsets"].append([])
                         entry["ammo_global_pixels"].append([])
                         entry["ammo_global_xy"].append([])
+
                     pixel = det.get("pixel")
                     offset = det.get("offset_from_origin")
                     xy = det.get("xy_aruco")
+
                     if pixel is not None:
                         entry["ammo_global_pixels"][idx].append(tuple(pixel))
                     if offset is not None:
@@ -142,13 +155,12 @@ class LayoutAccumulator:
                 except Exception:
                     pass
 
-            # quad en píxel (4 puntos)
+            # quad pixel (ordenado estable)
             quad = layout.get("board_quad_pixel")
             if quad is not None and len(quad) == 4:
                 try:
                     q = np.array(quad, dtype=np.float32)
-                    # fuerza orden canónico (TL, TR, BR, BL)
-                    q_ord = board_tracker.order_points(q)
+                    q_ord = board_tracker.order_points(q)  # TL,TR,BR,BL
                     entry["board_quad_pixel_frames"].append([tuple(map(float, p)) for p in q_ord])
                 except Exception:
                     pass
@@ -171,14 +183,13 @@ class LayoutAccumulator:
         return (sx / n, sy / n)
 
     @staticmethod
-    def _cells_with_type(
-        ship_two_cells: List[Cell], ship_one_cells: List[Cell]
-    ) -> List[dict]:
+    def _cells_with_type(ship_two_cells: List[Cell], ship_one_cells: List[Cell]) -> List[dict]:
+        # Importante: cell = (col,row)
         cells = []
         for c, r in ship_two_cells:
             cells.append({"col": c, "row": r, "type": "ship_two"})
         for c, r in ship_one_cells:
-            cells.append({"col": c, "row": r,"type": "ship_one"})
+            cells.append({"col": c, "row": r, "type": "ship_one"})
         return cells
 
     def build_layouts(self) -> List[dict]:
@@ -186,12 +197,8 @@ class LayoutAccumulator:
         threshold = max(1, int(self.target_frames * 0.6))
 
         for name, entry in self.data.items():
-            ship_two_cells = [
-                cell for cell, count in entry["ship_two_counts"].items() if count >= threshold
-            ]
-            ship_one_cells = [
-                cell for cell, count in entry["ship_one_counts"].items() if count >= threshold
-            ]
+            ship_two_cells = [cell for cell, count in entry["ship_two_counts"].items() if count >= threshold]
+            ship_one_cells = [cell for cell, count in entry["ship_one_counts"].items() if count >= threshold]
 
             ship_two_positions = []
             for cell in ship_two_cells:
@@ -199,9 +206,7 @@ class LayoutAccumulator:
                     {
                         "cell": cell,
                         "mean_pixel": self._average_point(entry["ship_two_pixels"].get(cell, [])),
-                        "mean_offset_from_origin": self._average_point(
-                            entry["ship_two_offsets"].get(cell, [])
-                        ),
+                        "mean_offset_from_origin": self._average_point(entry["ship_two_offsets"].get(cell, [])),
                     }
                 )
 
@@ -211,13 +216,9 @@ class LayoutAccumulator:
                     {
                         "cell": cell,
                         "mean_pixel": self._average_point(entry["ship_one_pixels"].get(cell, [])),
-                        "mean_offset_from_origin": self._average_point(
-                            entry["ship_one_offsets"].get(cell, [])
-                        ),
+                        "mean_offset_from_origin": self._average_point(entry["ship_one_offsets"].get(cell, [])),
                     }
                 )
-
-            ammo_positions = []
 
             ammo_global_positions = []
             for idx, xy_list in enumerate(entry["ammo_global_xy"]):
@@ -235,7 +236,7 @@ class LayoutAccumulator:
                     }
                 )
 
-            # Promedio de esquinas del tablero (4 esquinas)
+            # corners (promedio 4 esquinas)
             mean_board_corners: List[Tuple[float, float]] = []
             corners_frames = entry.get("board_corners_aruco", [])
 
@@ -253,13 +254,13 @@ class LayoutAccumulator:
             else:
                 mean_board_corners = []
 
-            # promedio del ratio
+            # ratio promedio
             ratio_list = entry.get("ratio_cm_per_pix_list", [])
             mean_ratio = None
             if ratio_list:
                 mean_ratio = sum(ratio_list) / float(len(ratio_list))
 
-            # promedio del quad
+            # quad promedio
             quad_frames = entry.get("board_quad_pixel_frames", [])
             mean_quad = None
             if quad_frames:
@@ -278,12 +279,17 @@ class LayoutAccumulator:
                 "cells": self._cells_with_type(ship_two_cells, ship_one_cells),
                 "ship_two_positions": ship_two_positions,
                 "ship_one_positions": ship_one_positions,
-                "ammo_positions": ammo_positions,
+
+                # Global ammo (aruco frame)
                 "ammo_points_aruco": ammo_global_positions,
+
+                # Board plane
                 "board_corners_aruco": mean_board_corners,
+
+                # geometry debug needed for reconstructing centers
                 "ratio_cm_per_pix": mean_ratio,
                 "board_quad_pixel": mean_quad,
-                "warp_size_px": WARP_SIZE,  # o el warp_size real si lo pasas
+                "warp_size_px": WARP_SIZE,
             }
             layouts.append(layout)
 
@@ -379,6 +385,7 @@ class BoardMainDebug:
 
                     ctr_warp = np.array([[[cxw, cyw]]], dtype=np.float32)
                     ctr_img = cv2.perspectiveTransform(ctr_warp, H_inv).reshape(-1, 2)[0]
+
                     dx_px = float(ctr_img[0]) - float(ox)
                     dy_px = float(ctr_img[1]) - float(oy)
 
@@ -386,68 +393,23 @@ class BoardMainDebug:
                     x_m = (dx_px * float(ratio_cm_per_pix)) / 100.0
                     y_m = (dy_px * float(ratio_cm_per_pix)) / 100.0
 
-                    cell_centers.append({"col": col, "row": row, "xy_aruco": [x_m, y_m], "ctr_img_px": [float(ctr_img[0]), float(ctr_img[1])]})
-
-        else:
-            # fallback: tu rejilla ideal (lo que tenías), pero ya NO la llames "aruco"
-            n = int(board_size)
-            cell_size_m = self.cell_cm / 100.0
-            for col in range(n):
-                for row in range(n):
                     cell_centers.append(
-                        {"col": col, "row": row, "xy_aruco": [(col + 0.5) * cell_size_m, (row + 0.5) * cell_size_m]})
+                        {
+                            "col": col,
+                            "row": row,
+                            "xy_aruco": [x_m, y_m],
+                            # debug útil para overlay; se elimina en minimización
+                            "ctr_img_px": [float(ctr_img[0]), float(ctr_img[1])],
+                        }
+                    )
+        else:
+            # Fallback: no podemos reconstruir XY reales en frame ArUco porque falta geometría.
+            # (típicamente: GLOBAL_ORIGIN no detectado, quad no disponible, o ratio_cm_per_pix None)
+            print("WARNING:  No podemos reconstruir XY reales en frame ArUco porque falta geometría.")
 
         layout["cell_centers_aruco"] = cell_centers
         layout["cell_size_m"] = self.cell_cm / 100.0
         return layout
-
-        # listas de pares [c,r]
-        for key in ("ship_two_cells", "ship_one_cells"):
-            out[key] = [list(rot(int(c), int(r))) for c, r in out.get(key, [])]
-
-        # lista "cells" (dict)
-        new_cells = []
-        for e in out.get("cells", []) or []:
-            try:
-                c, r = int(e["col"]), int(e["row"])
-                c2, r2 = rot(c, r)
-                ne = dict(e);
-                ne["col"] = c2;
-                ne["row"] = r2
-                new_cells.append(ne)
-            except Exception:
-                new_cells.append(e)
-        out["cells"] = new_cells
-
-        # positions con "cell"
-        for key in ("ship_two_positions", "ship_one_positions", "ammo_positions"):
-            new_lst = []
-            for e in out.get(key, []) or []:
-                try:
-                    c, r = map(int, e["cell"])
-                    c2, r2 = rot(c, r)
-                    ne = dict(e);
-                    ne["cell"] = [c2, r2]
-                    new_lst.append(ne)
-                except Exception:
-                    new_lst.append(e)
-            out[key] = new_lst
-
-        # cell_centers_aruco: solo indices
-        new_centers = []
-        for e in out.get("cell_centers_aruco", []) or []:
-            try:
-                c, r = int(e["col"]), int(e["row"])
-                c2, r2 = rot(c, r)
-                ne = dict(e);
-                ne["col"] = c2;
-                ne["row"] = r2
-                new_centers.append(ne)
-            except Exception:
-                new_centers.append(e)
-        out["cell_centers_aruco"] = new_centers
-
-        return out
 
     def emit_payload_to_terminal(self, layouts: List[dict]) -> None:
         boards = []
@@ -497,7 +459,7 @@ class BoardMainDebug:
             except Exception:
                 continue
 
-        # Recorta ammo_points_aruco: solo xy_aruco (mantengo id si existe para debug estable)
+        # Recorta ammo_points_aruco: solo xy_aruco e id
         for a in layout.get("ammo_points_aruco", []) or []:
             try:
                 xy = a.get("xy_aruco")
@@ -796,61 +758,6 @@ class BoardMainDebug:
         self.cap.release()
         cv2.destroyAllWindows()
 
-    def _flip_rows_layout(self, layout: dict) -> dict:
-        """
-        Fuerza convención: (0,0) arriba-izquierda de pantalla.
-        Si actualmente row está invertida (sale 4 cuando debería 0), aplicamos:
-            row_new = (N-1) - row_old
-        Se aplica a ship_*_cells, cells[] y a *_positions[].cell
-        También rehace cell_centers_aruco en coherencia.
-        """
-        n = int(layout.get("board_size") or board_tracker.BOARD_SQUARES or 5)
-
-        out = dict(layout)
-
-        # Listas de celdas
-        for key in ("ship_two_cells", "ship_one_cells"):
-            cells = out.get(key, [])
-            out[key] = [tuple(c) for c in cells]
-
-        # Lista "cells" con type
-        if "cells" in out and isinstance(out["cells"], list):
-            new_cells = []
-            for e in out["cells"]:
-                try:
-                    new_cells.append({**e, "row": n - 1 - int(e["row"])})
-                except Exception:
-                    new_cells.append(e)
-            out["cells"] = new_cells
-
-        # Positions: ship_two_positions, ship_one_positions, ammo_positions
-        for key in ("ship_two_positions", "ship_one_positions", "ammo_positions"):
-            lst = out.get(key, [])
-            new_lst = []
-            for e in lst:
-                try:
-                    cell = e.get("cell")
-                    new_e = dict(e)
-                    new_e["cell"] = cell
-                    new_lst.append(new_e)
-                except Exception:
-                    new_lst.append(e)
-            out[key] = new_lst
-
-        # cell_centers_aruco (si existe): flip row del índice, pero OJO:
-        # xy_aruco ya está en metros en el frame del ArUco; no debe cambiar.
-        # Solo cambiamos el "row" asociado a ese xy.
-        centers = out.get("cell_centers_aruco", [])
-        if centers:
-            new_centers = []
-            for e in centers:
-                try:
-                    new_centers.append({**e, "row": n - 1 - int(e["row"])})
-                except Exception:
-                    new_centers.append(e)
-            out["cell_centers_aruco"] = new_centers
-
-        return out
 
 
 
