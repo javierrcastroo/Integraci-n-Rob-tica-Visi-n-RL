@@ -440,7 +440,7 @@ class RobotAttackExecutor:
             rospy.logwarn("[robot_attack_executor] No llegó board_corners_aruco (o no tiene 4 puntos).")
 
         self.cell_xy_base = self._build_cell_base_map(
-            layout.get("cell_centers_aruco", []), layout.get("cell_size_m")
+            layout.get("cell_centers_aruco", [])
         )
         self.ammo_available = self._build_ammo_base_list(layout)
 
@@ -461,7 +461,7 @@ class RobotAttackExecutor:
         return result
 
     def _build_cell_base_map(
-        self, centers_aruco: Iterable[dict], cell_size_m: Optional[float]
+        self, centers_aruco: Iterable[dict]
     ) -> Dict[Cell, Tuple[float, float]]:
         """Convierte los centros enviados por visión (frame ArUco) a base_link."""
 
@@ -514,7 +514,7 @@ class RobotAttackExecutor:
         self.ammo_boxes.clear()
 
         for col, row in ship_cells:
-            name = f"ship_r{col}_c{row}"
+            name = f"ship_c{col}_r{row}"
             pose_caja = self._cell_to_box_pose((col, row))
             self.control.añadir_caja_a_escena_de_planificacion(
                 pose_caja, name, tamaño=(self.ship_box_size,) * 3

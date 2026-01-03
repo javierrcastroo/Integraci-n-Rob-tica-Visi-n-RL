@@ -341,11 +341,6 @@ class BoardMainDebug:
             "No muevas el tablero.",
         ]
 
-    @staticmethod
-    def _rot90_right(col: int, row: int, n: int) -> tuple[int, int]:
-        # (c,r) -> (n-1-r, c)
-        return (n - 1 - row, col)
-
 
     def _with_cartesian_coords(self, layout: dict) -> dict:
         board_size = layout.get("board_size") or board_tracker.BOARD_SQUARES
@@ -391,8 +386,7 @@ class BoardMainDebug:
                     x_m = (dx_px * float(ratio_cm_per_pix)) / 100.0
                     y_m = (dy_px * float(ratio_cm_per_pix)) / 100.0
 
-                    col2, row2 = self._rot90_right(col, row, n)
-                    cell_centers.append({"col": col2, "row": row2, "xy_aruco": [x_m, y_m], "ctr_img_px": [float(ctr_img[0]), float(ctr_img[1])]})
+                    cell_centers.append({"col": col, "row": row, "xy_aruco": [x_m, y_m], "ctr_img_px": [float(ctr_img[0]), float(ctr_img[1])]})
 
         else:
             # fallback: tu rejilla ideal (lo que tenías), pero ya NO la llames "aruco"
@@ -459,11 +453,64 @@ class BoardMainDebug:
         boards = []
         for l in layouts:
             l2 = self._with_cartesian_coords(l)
+            l2 = self._minimize_layout_for_robot(l2)
             boards.append(l2)
         payload = {"boards": boards}
         print("\n" + "=" * 25 + " JSON QUE SE ENVIARIA " + "=" * 25)
         print(json.dumps(payload, indent=2, default=self.json_default))
         print("=" * 78 + "\n")
+
+    def _minimize_layout_for_robot(self, layout: dict) -> dict:
+        """
+        Reduce el layout a lo estrictamente necesario para RobotAttackExecutor.
+        Elimina píxeles, offsets y duplicados que no se consumen.
+        """
+        out = {
+            "name": layout.get("name", "T1"),
+            "board_size": int(layout.get("board_size") or 5),
+
+            # MoveIt board plane (4 corners in meters, ArUco frame)
+            "board_corners_aruco": layout.get("board_corners_aruco", []),
+
+            # Triangulación por celda: (col,row)->xy_aruco (meters)
+            "cell_centers_aruco": [],
+
+            # Obstáculos barcos por celdas
+            "ship_two_cells": layout.get("ship_two_cells", []),
+            "ship_one_cells": layout.get("ship_one_cells", []),
+
+            # Munición fuera de tablero: lista de puntos en el frame ArUco (meters)
+            "ammo_points_aruco": [],
+        }
+
+        # Recorta cell_centers_aruco: solo (col,row,xy_aruco)
+        for e in layout.get("cell_centers_aruco", []) or []:
+            try:
+                col = int(e.get("col"))
+                row = int(e.get("row"))
+                xy = e.get("xy_aruco")
+                if xy is None or len(xy) != 2:
+                    continue
+                x = float(xy[0])
+                y = float(xy[1])
+                out["cell_centers_aruco"].append({"col": col, "row": row, "xy_aruco": [x, y]})
+            except Exception:
+                continue
+
+        # Recorta ammo_points_aruco: solo xy_aruco (mantengo id si existe para debug estable)
+        for a in layout.get("ammo_points_aruco", []) or []:
+            try:
+                xy = a.get("xy_aruco")
+                if xy is None or len(xy) != 2:
+                    continue
+                entry = {"xy_aruco": [float(xy[0]), float(xy[1])]}
+                if "id" in a:
+                    entry["id"] = int(a["id"])
+                out["ammo_points_aruco"].append(entry)
+            except Exception:
+                continue
+
+        return out
 
     def update_capture_state(self, layouts: List[dict]) -> None:
         if self.capture_state == "CAPTURING":
@@ -658,6 +705,50 @@ class BoardMainDebug:
                         cv2.putText(vis, txt1, (ax + 3, ay - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.32, (255, 255, 255), 1)
                         cv2.putText(vis, txt2, (ax + 3, ay + 2), cv2.FONT_HERSHEY_SIMPLEX, 0.32, (255, 255, 255), 1)
                         cv2.putText(vis, txt3, (ax + 3, ay + 12), cv2.FONT_HERSHEY_SIMPLEX, 0.32, (255, 255, 255), 1)
+                # =========================
+                # ESQUINAS DEL TABLERO: overlay ArUco -> esquinas
+                # =========================
+                quad = layouts[0].get("board_quad_pixel") if layouts else None
+                ratio = layouts[0].get("ratio_cm_per_pix") if layouts else None
+
+                if quad is not None and len(quad) == 4 and board_state.GLOBAL_ORIGIN is not None and ratio is not None:
+                    gx, gy = map(int, board_state.GLOBAL_ORIGIN)
+                    ox, oy = board_state.GLOBAL_ORIGIN
+
+                    # Si tu quad ya viene ordenado por board_tracker.order_points, perfecto.
+                    # Si no, lo ordenamos para tener TL,TR,BR,BL estable:
+                    q = np.array(quad, dtype=np.float32)
+                    q = board_tracker.order_points(q)  # TL,TR,BR,BL
+
+                    corner_names = ["TL", "TR", "BR", "BL"]
+
+                    for name, (px, py) in zip(corner_names, q):
+                        px_f, py_f = float(px), float(py)
+
+                        # offset px desde el ArUco
+                        dx_px = px_f - float(ox)
+                        dy_px = py_f - float(oy)
+
+                        # a metros (xy_aruco)
+                        x_m = (dx_px * float(ratio)) / 100.0
+                        y_m = (dy_px * float(ratio)) / 100.0
+
+                        cx, cy = int(px_f), int(py_f)
+
+                        # punto esquina
+                        cv2.circle(vis, (cx, cy), 6, (255, 255, 255), 2)
+
+                        # vector ArUco -> esquina
+                        cv2.line(vis, (gx, gy), (cx, cy), (200, 200, 200), 1)
+
+                        # texto (3 líneas compactas como casillas)
+                        txt1 = f"{name}"
+                        txt2 = f"x{(x_m * 100):.2f}"
+                        txt3 = f"y{(y_m * 100):.2f}"
+
+                        cv2.putText(vis, txt1, (cx + 3, cy - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.32, (255, 255, 255), 1)
+                        cv2.putText(vis, txt2, (cx + 3, cy + 2), cv2.FONT_HERSHEY_SIMPLEX, 0.32, (255, 255, 255), 1)
+                        cv2.putText(vis, txt3, (cx + 3, cy + 12), cv2.FONT_HERSHEY_SIMPLEX, 0.32, (255, 255, 255), 1)
             except Exception as exc:
                 print("[WARN] overlay debug failed:", exc)
 
