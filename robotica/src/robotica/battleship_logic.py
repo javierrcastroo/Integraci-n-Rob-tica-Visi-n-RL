@@ -5,9 +5,18 @@ def _cells_adjacent(a, b):
 
 
 def evaluate_board(layout):
-    """Recibe un layout con listas de celdas ocupadas y devuelve (ok, mensaje)."""
-    ship_two_cells = layout.get("ship_two_cells", [])
-    ship_one_cells = layout.get("ship_one_cells", [])
+    """Recibe un layout con listas de celdas ocupadas y devuelve (ok, mensaje).
+
+    Se admite que ship_two_cells y ship_one_cells vengan como listas de listas
+    [r, c] desde JSON; aquí se convierten a tuplas (r, c) para poder hacer sets.
+    """
+    # Crudos desde el JSON (pueden ser listas)
+    ship_two_cells_raw = layout.get("ship_two_cells", [])
+    ship_one_cells_raw = layout.get("ship_one_cells", [])
+
+    # Normalizamos a tuplas (r, c)
+    ship_two_cells = [tuple(cell) for cell in ship_two_cells_raw]
+    ship_one_cells = [tuple(cell) for cell in ship_one_cells_raw]
 
     errors = []
 
@@ -48,6 +57,7 @@ def evaluate_board(layout):
 
     if not errors:
         return True, "Distribución correcta"
+
     # devolver solo errores únicos para no repetir el mismo texto
     uniq_errors = []
     for err in errors:

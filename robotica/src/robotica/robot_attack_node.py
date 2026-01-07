@@ -5,6 +5,7 @@ Versión SIN TF: el ArUco se asume fijo respecto a base_link y se configura por 
 Incluye yaw opcional (rotación alrededor de Z) para alinear tablero y robot.
 """
 
+import copy
 import json
 import math
 from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
@@ -94,6 +95,8 @@ class RobotAttackExecutor:
         self.ammo_boxes: Set[str] = set()
         self.cell_xy_base: Dict[Cell, Tuple[float, float]] = {}
         self.ammo_available: List[Tuple[float, float]] = []
+        
+        self.ship_cells_set: Set[Cell] = set()
 
         if self.move_to_initial:
             rospy.loginfo("Moviendo a la posición inicial")
@@ -480,6 +483,10 @@ class RobotAttackExecutor:
         ship_cells = self._extract_cells(layout.get("ship_two_cells", []))
         ship_cells.extend(self._extract_cells(layout.get("ship_one_cells", [])))
         ammo_cells = list(self.ammo_available)
+        
+        # Guardamos las celdas con barco para decidir si es agua o no en el PLACE
+        self.ship_cells_set = set(ship_cells)
+        rospy.loginfo("[robot_attack_executor] ship_cells_set actualizado con %d celdas", len(self.ship_cells_set))
 
         self._update_obstacles(ship_cells, ammo_cells)
 
@@ -693,8 +700,62 @@ class RobotAttackExecutor:
 
         rospy.loginfo("[robot_attack_executor] Bajando en z")
         pose_actual = self.control.pose_actual()
-        pose_actual.position.z -= 0.065
-        self.control.mover_trayectoria([pose_actual])
+
+        # Decidir profundidad según si la casilla tiene barco o no
+        hay_barco = cell in self.ship_cells_set
+        pose_actual = self.control.pose_actual()
+
+        if hay_barco:
+            delta_z = -0.075  # bajar 7.5 cm
+            rospy.loginfo(
+                "[robot_attack_executor] [PLACE] Celda %s con BARCO: bajando 7.5 cm",
+                cell,
+            )
+        else:
+            delta_z = -0.10   # bajar 10 cm
+            rospy.loginfo(
+                "[robot_attack_executor] [PLACE] Celda %s de AGUA: bajando 10 cm",
+                cell,
+            )
+            
+            # Mirar celdas adyacentes en columnas (misma fila)
+            col, row = cell
+            vecinos = [(col - 1, row), (col + 1, row)]
+            hay_barco_adyacente = any(v in self.ship_cells_set for v in vecinos)
+            
+            rotar_pinza = False
+            if hay_barco_adyacente:
+                rotar_pinza = True
+                rospy.loginfo(
+                    "[robot_attack_executor] [PLACE] Agua adyacente a BARCO en %s: "
+                    "rotando pinza 90 grados",
+                    cell,
+                )
+
+            # Si hay que rotar la pinza, giramos 90º alrededor de Z (yaw)
+            if rotar_pinza:
+                q_old = [
+                    pose_actual.orientation.x,
+                    pose_actual.orientation.y,
+                    pose_actual.orientation.z,
+                    pose_actual.orientation.w,
+                ]
+                roll, pitch, yaw = euler_from_quaternion(q_old)
+                yaw += math.pi / 2.0  # +90 grados; cambia el signo si ves que gira al revés
+
+                q_new = quaternion_from_euler(roll, pitch, yaw)
+                pose_actual.orientation.x = q_new[0]
+                pose_actual.orientation.y = q_new[1]
+                pose_actual.orientation.z = q_new[2]
+                pose_actual.orientation.w = q_new[3]
+
+                rospy.loginfo(
+                    "[robot_attack_executor] [PLACE] Pinza rotada 90 grados en yaw (celda %s)",
+                    cell,
+                )
+
+        pose_actual.position.z += delta_z
+        ok = self.control.mover_trayectoria([pose_actual])
 
         rospy.loginfo("[robot_attack_executor] [PLACE] Abrir pinza")
         self._gripper_open()
