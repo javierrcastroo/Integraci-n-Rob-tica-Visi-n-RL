@@ -16,6 +16,16 @@ from tf.transformations import quaternion_from_euler
 from math import pi, tau, dist, fabs, cos, hypot, atan2
 from std_msgs.msg import String
 
+rospy.init_node("kjashdjksha", anonymous=True)
+gripper_action_client = SimpleActionClient("rg2_action_server", GripperCommandAction)
+gripper_action_client.wait_for_server()
+goal = GripperCommandGoal()
+goal.command.position = 0.0
+goal.command.max_effort = 40
+gripper_action_client.send_goal(goal)
+gripper_action_client.wait_for_result()
+result = gripper_action_client.get_result()
+
 class ControlRobot:
     def __init__(self, *, init_ros_node: bool = True, node_name: str = "control_robot") -> None:
         """Inicializa el controlador del robot.
@@ -26,16 +36,13 @@ class ControlRobot:
                 que ya hayan llamado a ``rospy.init_node``.
             node_name: Nombre del nodo ROS en caso de inicializarlo aquí.
         """
-    
+
         roscpp_initialize(sys.argv)
-        # if init_ros_node and not rospy.core.is_initialized():
-        #rospy.init_node(node_name, anonymous=True)
         self.robot = RobotCommander()
         self.scene = PlanningSceneInterface()
         self.group_name = "robot"
         self.move_group = MoveGroupCommander(self.group_name)
         self.gripper_action_client = SimpleActionClient("rg2_action_server", GripperCommandAction)
-        self.gripper_action_client.wait_for_server()
         self.floor_name = "suelo"
         self.floor_size = (2.0, 2.0, 0.05)   # (x, y, z)
         self.floor_center_z = -0.026
@@ -366,7 +373,7 @@ if __name__ == '__main__':
     # Crear el objeto de tipo robot
     control = ControlRobot()
 
-    control.mover_pinza(100.0, 40.0)
+    control.mover_pinza(0.0, 40.0)
     a =3
 
     # pi_medios = pi / 2

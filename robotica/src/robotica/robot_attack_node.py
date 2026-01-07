@@ -65,7 +65,7 @@ class RobotAttackExecutor:
         # Pick munición: bajar "casi hasta el suelo"
         self.pick_clearance_m = float(rospy.get_param("~pick_clearance_m", 0.03))  # 3 cm sobre el suelo
 
-        # Place en tablero: dejar 5 cm sobre el suelo 
+        # Place en tablero: dejar 5 cm sobre el suelo
         self.place_clearance_m = float(rospy.get_param("~place_clearance_m", 0.05))  # 5 cm sobre el suelo
 
         # Control
@@ -86,9 +86,9 @@ class RobotAttackExecutor:
         self.board_layout_sub = rospy.Subscriber(
             "battleship/board_layout", String, self.board_layout_cb, queue_size=10
         )
-        #self.board_request_pub = rospy.Publisher(
-        #    "battleship/board_request", String, queue_size=10
-        #)
+        # self.board_request_pub = rospy.Publisher(
+        #     "battleship/board_request", String, queue_size=10
+        # )
 
         self.ship_boxes: Set[str] = set()
         self.ammo_boxes: Set[str] = set()
@@ -97,24 +97,22 @@ class RobotAttackExecutor:
 
         if self.move_to_initial:
             rospy.loginfo("Moviendo a la posición inicial")
-            #self._gripper_close()
+            # self._gripper_close()
             self._move_to_initial_position()
 
         # --- CAMBIO: log coherente con el Z que realmente usas ---
         rospy.loginfo(
-            "[robot_attack_executor] SIN TF. ArUco fijo en base_link: (%.3f, %.3f, %.3f), yaw=%.3f rad "
-            "(cell=%.3f)",
+            "[robot_attack_executor] SIN TF. ArUco fijo en base_link: (%.3f, %.3f, %.3f), yaw=%.3f rad ",
             self.aruco_origin_x,
             self.aruco_origin_y,
             self.aruco_origin_z,
             self.aruco_yaw,
-            self.cell_size,
         )
 
     # -------------------------
     # Helpers de transformación (tablero -> base_link)
     # -------------------------
-    
+
     def _down_gripper_quat(self) -> Tuple[float, float, float, float]:
         """
         Quaternion para mantener la pinza "mirando hacia abajo" en base_link.
@@ -123,6 +121,25 @@ class RobotAttackExecutor:
         qx, qy, qz, qw = quaternion_from_euler(math.pi, 0.0, 0.0)
         return qx, qy, qz, qw
 
+    def _rotate_aruco_xy(self, x_aruco: float, y_aruco: float) -> Tuple[float, float]:
+        """
+        Rota las coordenadas del frame ArUco un ángulo fijo (45 grados) antes de
+        hacer la transformación a base_link.
+
+        Matriz de rotación R(θ):
+          x' = cosθ * x - sinθ * y
+          y' = sinθ * x + cosθ * y
+
+        Ahora mismo θ = +45° (π/4 rad). Si ves que el giro es al revés en la práctica,
+        basta con cambiar el signo del ángulo.
+        """
+        angle_rad = math.radians(135.0)
+        c = math.cos(angle_rad)
+        s = math.sin(angle_rad)
+
+        x_rot = c * x_aruco - s * y_aruco
+        y_rot = s * x_aruco + c * y_aruco
+        return x_rot, y_rot
 
     def _board_to_base_xy(self, x_board: float, y_board: float) -> Tuple[float, float]:
         """
@@ -140,9 +157,9 @@ class RobotAttackExecutor:
 
     def _aruco_to_base_xy(self, x_aruco: float, y_aruco: float) -> Tuple[float, float]:
         """Transforma coordenadas en el frame del ArUco al frame base_link."""
-        
+
         x_aruco = -x_aruco
-        
+
         c = math.cos(self.aruco_yaw)
         s = math.sin(self.aruco_yaw)
 
@@ -263,11 +280,24 @@ class RobotAttackExecutor:
         return self.ammo_available.pop(0)
 
     def _move_linear(self, pose: Pose, *, context: str) -> bool:
+        # Z segura: la Z actual del robot
+        pose_actual = self.control.pose_actual()
+        z_segura = pose_actual.position.z
+
+        # Clonamos la pose objetivo y la ponemos en esa misma Z
+        pose.position.z = z_segura
+
+        rospy.loginfo(
+            "[robot_attack_executor] [LINEAR] Contexto=%s, usando Z segura=%.4f",
+            context,
+            z_segura,
+        )
+
         success = self.control.mover_en_linea_recta(
             pose,
             wait=True,
             pasos=200,
-            z_constante=None,
+            z_constante=z_segura,   # toda la trayectoria va en esa Z
             eef_step=0.0075,
             intentos=4,
         )
@@ -280,9 +310,9 @@ class RobotAttackExecutor:
             context,
         )
 
-        # --- CAMBIO RECOMENDADO: fallback a planificación estándar ---
+        # Fallback: planificación estándar, también forzando esa Z segura
         rospy.logwarn(
-            "[robot_attack_executor] Fallback: probando mover_a_pose (%s)",
+            "[robot_attack_executor] Fallback: probando mover_a_pose (%s) con Z segura",
             context,
         )
         return self.control.mover_a_pose(pose, wait=True)
@@ -343,7 +373,7 @@ class RobotAttackExecutor:
 
         x_aruco, y_aruco = self.cell_xy_aruco[cell]
         rospy.loginfo(
-            "[robot_attack_executor][triangulation] aruco->cell: "
+            "[robot_attack_executor][triangulation] aruco->cell (ya rotado 45º): "
             "(x=%.3f, y=%.3f)",
             x_aruco,
             y_aruco,
@@ -394,9 +424,8 @@ class RobotAttackExecutor:
             if not ok:
                 rospy.logwarn("[robot_attack_executor] No se pudo volver a Pos_Inicial tras el ataque.")
 
-                #self.board_request_pub.publish(String("post_robot_attack"))
-                #rospy.loginfo("[robot_attack_executor] Petición de captura enviada tras mover el robot")
-
+                # self.board_request_pub.publish(String("post_robot_attack"))
+                # rospy.loginfo("[robot_attack_executor] Petición de captura enviada tras mover el robot")
 
     def board_layout_cb(self, msg: String) -> None:
         try:
@@ -427,7 +456,11 @@ class RobotAttackExecutor:
                 except Exception:
                     corners_base = []
                     break
-                corners_base.append(self._aruco_to_base_xy(x_aruco, y_aruco))
+
+                # Rotación previa de 45° en el frame ArUco
+                x_rot, y_rot = self._rotate_aruco_xy(x_aruco, y_aruco)
+
+                corners_base.append(self._aruco_to_base_xy(x_rot, y_rot))
 
             if len(corners_base) == 4:
                 self.control.añadir_tablero_como_plano(
@@ -463,7 +496,7 @@ class RobotAttackExecutor:
     def _build_cell_base_map(
         self, centers_aruco: Iterable[dict]
     ) -> Dict[Cell, Tuple[float, float]]:
-        """Convierte los centros enviados por visión (frame ArUco) a base_link."""
+        """Convierte los centros enviados por visión (frame ArUco, con rotación previa) a base_link."""
 
         result: Dict[Cell, Tuple[float, float]] = {}
         self.cell_xy_aruco.clear()
@@ -478,9 +511,14 @@ class RobotAttackExecutor:
             except Exception:
                 continue
 
-            self.cell_xy_aruco[(col, row)] = (x_aruco, y_aruco)
+            # Rotación previa de 45°
+            x_rot, y_rot = self._rotate_aruco_xy(x_aruco, y_aruco)
 
-            x_base, y_base = self._aruco_to_base_xy(x_aruco, y_aruco)
+            # Guardamos la versión ya rotada como "xy_aruco" interno para debug/triangulación
+            self.cell_xy_aruco[(col, row)] = (x_rot, y_rot)
+
+            # Y esta es la que pasa al frame base_link
+            x_base, y_base = self._aruco_to_base_xy(x_rot, y_rot)
             result[(col, row)] = (x_base, y_base)
 
         return result
@@ -498,10 +536,13 @@ class RobotAttackExecutor:
                 y_aruco = float(xy[1])
             except Exception:
                 continue
-            ammo_base.append(self._aruco_to_base_xy(x_aruco, y_aruco))
+
+            # Rotación previa de 45°
+            x_rot, y_rot = self._rotate_aruco_xy(x_aruco, y_aruco)
+
+            ammo_base.append(self._aruco_to_base_xy(x_rot, y_rot))
 
         return ammo_base
-
 
     def _update_obstacles(
         self, ship_cells: List[Cell], ammo_cells: List[Tuple[float, float]]
@@ -591,7 +632,6 @@ class RobotAttackExecutor:
 
     def _gripper_open(self) -> bool:
         self.control.mover_pinza(self.gripper_open_width, self.gripper_force)
- 
 
     def _gripper_close(self) -> bool:
         self.control.mover_pinza(self.gripper_closed_width, self.gripper_force)
@@ -611,27 +651,27 @@ class RobotAttackExecutor:
         rospy.loginfo("[robot_attack_executor] [PICK] Ir a munición (hover)")
         if not self._move_linear(hover_pose, context="ammo_hover"):
             return False
-        
+
         rospy.loginfo("[robot_attack_executor] [PLACE] Abrir pinza")
         self._gripper_open()
-        
+
         rospy.sleep(1)
-        
+
         rospy.loginfo("[robot_attack_executor] Bajando en z")
         pose_actual = self.control.pose_actual()
-        pose_actual.position.z -= 0.05
+        pose_actual.position.z -= 0.06
         self.control.mover_trayectoria([pose_actual])
 
         rospy.loginfo("[robot_attack_executor] [PICK] Cerrar pinza")
         self._gripper_close()
-        
+
         rospy.sleep(1)
 
         rospy.loginfo("[robot_attack_executor] Subiendo en z")
         pose_actual = self.control.pose_actual()
-        pose_actual.position.z += 0.05
+        pose_actual.position.z += 0.10
         self.control.mover_trayectoria([pose_actual])
-        
+
         rospy.sleep(1)
 
         return True
@@ -653,23 +693,22 @@ class RobotAttackExecutor:
 
         rospy.loginfo("[robot_attack_executor] Bajando en z")
         pose_actual = self.control.pose_actual()
-        pose_actual.position.z -= 0.01
+        pose_actual.position.z -= 0.065
         self.control.mover_trayectoria([pose_actual])
 
         rospy.loginfo("[robot_attack_executor] [PLACE] Abrir pinza")
         self._gripper_open()
-        
+
         rospy.sleep(1)
 
         rospy.loginfo("[robot_attack_executor] Subiendo en z")
         pose_actual = self.control.pose_actual()
-        pose_actual.position.z += 0.01
+        pose_actual.position.z += 0.07
         self.control.mover_trayectoria([pose_actual])
-        
+
         rospy.sleep(1)
 
         return True
-
 
 
 def main() -> None:
