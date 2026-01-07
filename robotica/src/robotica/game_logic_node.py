@@ -307,7 +307,7 @@ class GameLogicNode(object):
         # Ataque repetido
         if cell in self.hits:
             rospy.loginfo(f"[game_logic_node] Ataque RL repetido en {cell_name}")
-            self.rl_feedback_pub.publish(String("repetido"))
+            rospy.Timer(rospy.Duration(0.2), lambda _: self.rl_feedback_pub.publish(String("repetido")), oneshot=True)
             return
     
         # Registramos impacto
@@ -317,7 +317,7 @@ class GameLogicNode(object):
         if cell not in self.all_ship_cells:
             # Agua
             rospy.loginfo(f"[game_logic_node] RL: Agua en {cell_name}")
-            self.rl_feedback_pub.publish(String("agua"))
+            rospy.Timer(rospy.Duration(0.2), lambda _: self.rl_feedback_pub.publish(String("agua")), oneshot=True)
             return
     
         # Impacto
@@ -344,15 +344,15 @@ class GameLogicNode(object):
     
         # Traducir RESULT → feedback RL
         if result == "hit":
-            self.rl_feedback_pub.publish(String("tocado"))
+            rospy.Timer(rospy.Duration(0.3), lambda _: self.rl_feedback_pub.publish(String("tocado")), oneshot=True)
     
         elif result == "sunk":
-            self.rl_feedback_pub.publish(String("hundido"))
+            rospy.Timer(rospy.Duration(0.3), lambda _:  self.rl_feedback_pub.publish(String("hundido")), oneshot=True)
     
         elif result == "sunk_all":
             # RL gana la partida
-            self.rl_feedback_pub.publish(String("victoria"))
-            self.rl_state_pub.publish(String("win_agent"))
+            rospy.Timer(rospy.Duration(0.3), lambda _:  self.rl_feedback_pub.publish(String("victoria")), oneshot=True)
+            rospy.Timer(rospy.Duration(0.3), lambda _:  self.rl_state_pub.publish(String("win_agent")), oneshot=True)
 
 
     # ---------- publicación resultado ----------
