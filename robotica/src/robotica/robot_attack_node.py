@@ -57,6 +57,7 @@ class RobotAttackExecutor:
         # Pinza y alturas de pick/place
         # -------------------------
         self.gripper_open_width = float(rospy.get_param("~gripper_open_width", 75))
+        self.gripper_open_width2 = float(rospy.get_param("~gripper_open_width", 30))
         self.gripper_closed_width = float(rospy.get_param("~gripper_closed_width", 2))
         self.gripper_force = float(rospy.get_param("~gripper_force", 20.0))
 
@@ -611,6 +612,9 @@ class RobotAttackExecutor:
 
     def _gripper_open(self) -> bool:
         self.control.mover_pinza(self.gripper_open_width, self.gripper_force)
+        
+    def _gripper_open2(self) -> bool:
+        self.control.mover_pinza(self.gripper_open_width2, self.gripper_force)
 
     def _gripper_close(self) -> bool:
         self.control.mover_pinza(self.gripper_closed_width, self.gripper_force)
@@ -710,8 +714,8 @@ class RobotAttackExecutor:
         pose_actual.position.z += delta_z
         ok = self.control.mover_trayectoria([pose_actual])
 
-        rospy.loginfo("[robot_attack_executor] [PLACE] Abrir pinza")
-        self._gripper_open()
+        rospy.loginfo("[robot_attack_executor] [PLACE] Abrir pinza poco")
+        self._gripper_open2()
         rospy.sleep(1)
 
         rospy.loginfo("[robot_attack_executor] Subiendo en z")
@@ -719,6 +723,11 @@ class RobotAttackExecutor:
         pose_actual.position.z += 0.07
         self.control.mover_trayectoria([pose_actual])
         rospy.sleep(1)
+        
+        rospy.loginfo("[robot_attack_executor] [PLACE] Abrir pinza mucho")
+        self._gripper_open()
+        rospy.sleep(1)
+
 
         return True
 

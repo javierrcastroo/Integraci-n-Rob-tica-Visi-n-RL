@@ -17,7 +17,7 @@ def _cells_from_layout(layout):
     """
     Normaliza ship_two_cells y ship_one_cells a listas de tuplas (col, row).
 
-    Se asume que en el JSON original vienen como [row, col],
+    Se asume que en el JSON original vienen como [col, row],
     y aquí los convertimos a (col, row) SOLO para uso interno.
     NO modificamos el layout para no romper evaluate_board.
     """
@@ -25,8 +25,8 @@ def _cells_from_layout(layout):
     raw_one = layout.get("ship_one_cells", [])
 
     # JSON: [row, col] -> interno: (col, row)
-    ship_two_cells = [(c[1], c[0]) for c in raw_two]
-    ship_one_cells = [(c[1], c[0]) for c in raw_one]
+    ship_two_cells = [(c[0], c[1]) for c in raw_two]
+    ship_one_cells = [(c[0], c[1]) for c in raw_one]
 
     return ship_two_cells, ship_one_cells
 
