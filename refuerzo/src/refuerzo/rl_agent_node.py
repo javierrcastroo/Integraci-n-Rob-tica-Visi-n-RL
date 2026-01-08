@@ -9,7 +9,6 @@ import rospy
 import rospkg
 import subprocess
 import json
-import threading
 
 from std_msgs.msg import String, Empty
 from board_visualizer import draw_guess_board
@@ -29,20 +28,23 @@ guess_window_name = "Guess Board"
 guess_board = np.zeros((BOARD_SIZE, BOARD_SIZE), dtype=np.int8)
 
 
-
 def update_gui():
-    """Redibuja el tablero de guess en la ventana."""
+    """Redibuja el tablero de guess en la ventana (solo desde el hilo principal)."""
     global last_action, guess_board
-    
+
     img = draw_guess_board(guess_board, last_shot=last_action)
+    # Debug opcional:
+    # rospy.loginfo(f"[refuerzo] img shape={img.shape}, dtype={img.dtype}, "
+    #               f"min={img.min()}, max={img.max()}")
     cv2.imshow(guess_window_name, img)
-    cv2.waitKey(1)   # NO bloquea
+    # Importante: waitKey en el mismo hilo siempre
+    cv2.waitKey(1)
 
 
 def mark_diagonals_as_miss(y, x):
-    global guess_board
     """Marca como MISS (1) las diagonales alrededor de un hit."""
-    diag_offsets = [(-1,-1), (-1,1), (1,-1), (1,1)]
+    global guess_board
+    diag_offsets = [(-1, -1), (-1, 1), (1, -1), (1, 1)]
     for dy, dx in diag_offsets:
         ny, nx = y + dy, x + dx
         if 0 <= ny < len(guess_board) and 0 <= nx < len(guess_board[0]):
@@ -50,24 +52,14 @@ def mark_diagonals_as_miss(y, x):
                 guess_board[ny, nx] = 1
 
 
-def gui_loop():
-    """Hilo dedicado a refrescar el tablero."""
-    global last_action, guess_board
-    
-    rate = rospy.Rate(15)  # 15 FPS
-    while not rospy.is_shutdown():
-        img = draw_guess_board(guess_board, last_shot=last_action)
-        cv2.imshow(guess_window_name, img)
-        cv2.waitKey(1)
-        rate.sleep()
-
-
 def index_to_coord(row, col):
     return f"{chr(ord('A') + row)}{col + 1}"
 
 
 def stream_server_stderr(proc):
-    """Captura stderr del servidor RL en un hilo."""
+    """Captura stderr del servidor RL en un hilo (solo logs, sin GUI)."""
+    import threading
+
     def _reader():
         for line in proc.stderr:
             rospy.loginfo("[refuerzo-SERVER] " + line.strip())
@@ -84,7 +76,7 @@ def start_rl_server():
     pkg_path = rospack.get_path("refuerzo")
 
     server = f"{pkg_path}/src/refuerzo/rl_model_server.py"
-    model  = f"{pkg_path}/src/refuerzo/models/saved_models/best_model"
+    model = f"{pkg_path}/src/refuerzo/models/saved_models/best_model"
 
     # Usar Python de venv_rl
     python = f"{pkg_path}/venv_rl/bin/python"
@@ -139,14 +131,15 @@ def rl_predict():
         try:
             row = int(data["row"])
             col = int(data["col"])
-        except:
+        except Exception:
             rospy.logwarn(f"[refuerzo] row/col no son enteros: {data}")
             continue
-            
+
         return row, col
 
 
 def agent_fire():
+    """Lógica de disparo del agente (sin tocar GUI)."""
     global last_action
 
     row, col = rl_predict()
@@ -156,8 +149,7 @@ def agent_fire():
     rospy.loginfo(f"[refuerzo] Disparo → {coord}")
 
     fire_pub.publish(coord)
-
-    update_gui()
+    # NO llamamos a update_gui() aquí → solo desde el hilo principal
 
 
 def your_turn_callback(_):
@@ -165,10 +157,9 @@ def your_turn_callback(_):
     agent_fire()
 
 
-
 def feedback_callback(msg):
-    """Recibe feedback del GameLogic y actualiza guess_board + RL."""
-    global guess_board, last_action
+    """Recibe feedback del GameLogic y actualiza guess_board + RL (sin tocar GUI)."""
+    global guess_board, last_action, model_stdin
 
     if last_action is None:
         return
@@ -205,8 +196,7 @@ def feedback_callback(msg):
         rospy.loginfo("[refuerzo] ¡Victoria del agente!")
         reset_internal_state()
 
-    update_gui()
-
+    # NO llamamos a update_gui() aquí; el main loop pinta periódicamente
 
 
 def state_callback(msg):
@@ -217,10 +207,9 @@ def state_callback(msg):
         reset_internal_state()
 
 
-
 def reset_internal_state():
     """Reinicio completo del estado interno del agente RL."""
-    global last_action, guess_board
+    global last_action, guess_board, model_stdin
 
     guess_board[:] = 0
     last_action = None
@@ -229,15 +218,17 @@ def reset_internal_state():
     model_stdin.flush()
 
     rospy.loginfo("[refuerzo] Estado interno reseteado")
-
-    update_gui()
-
+    # Tampoco tocamos GUI aquí
 
 
 if __name__ == "__main__":
     rospy.init_node("rl_agent_node")
 
+    # Crear ventana de OpenCV en el hilo principal (igual que en hand_main_viewer)
     cv2.namedWindow(guess_window_name)
+
+    # Pintar tablero vacío al inicio
+    update_gui()
 
     # Lanzar modelo RL en venv_rl
     start_rl_server()
@@ -248,7 +239,13 @@ if __name__ == "__main__":
     rospy.Subscriber("/game/feedback", String, feedback_callback)
     rospy.Subscriber("/game/state", String, state_callback)
 
-    threading.Thread(target=gui_loop, daemon=True).start()
-
     rospy.loginfo("[refuerzo] Nodo iniciado. Esperando turnos...")
-    rospy.spin()
+
+    # Bucle principal: SOLO aquí se hace imshow + waitKey,
+    # igual que en hand_main_viewer (sin rospy.spin()).
+    rate = rospy.Rate(15)  # 15 FPS de refresco
+    while not rospy.is_shutdown():
+        update_gui()
+        rate.sleep()
+
+    cv2.destroyAllWindows()

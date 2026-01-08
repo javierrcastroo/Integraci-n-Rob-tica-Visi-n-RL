@@ -92,6 +92,7 @@ class RobotAttackExecutor:
 
         # celdas con barco (y luego también impactos)              # <<<
         self.ship_cells_set: Set[Cell] = set()
+        self.ship_cells_set_hit: Set[Cell] = set()
 
         # contador para nombres únicos de impactos                  # <<<
         self.impact_counter: int = 0
@@ -662,6 +663,8 @@ class RobotAttackExecutor:
         # Decidir profundidad según si la casilla tiene barco o no
         hay_barco = cell in self.ship_cells_set
         pose_actual = self.control.pose_actual()
+        
+        rotar_pinza = False
 
         if hay_barco:
             delta_z = -0.075  # bajar 7.5 cm
@@ -669,6 +672,20 @@ class RobotAttackExecutor:
                 "[robot_attack_executor] [PLACE] Celda %s con BARCO: bajando 7.5 cm",
                 cell,
             )
+            
+            # Mirar celdas impactadas adyacentes en columnas (misma fila)
+            col, row = cell
+            vecinos = [(col - 1, row), (col + 1, row)]
+            hay_barco_adyacente = any(v in self.ship_cells_set_hit for v in vecinos)
+
+            if hay_barco_adyacente:
+                rotar_pinza = True
+                rospy.loginfo(
+                    "[robot_attack_executor] [PLACE] Agua adyacente a BARCO en %s: "
+                    "rotando pinza 90 grados",
+                    cell,
+                )
+
         else:
             delta_z = -0.10   # bajar 10 cm
             rospy.loginfo(
@@ -681,7 +698,6 @@ class RobotAttackExecutor:
             vecinos = [(col - 1, row), (col + 1, row)]
             hay_barco_adyacente = any(v in self.ship_cells_set for v in vecinos)
 
-            rotar_pinza = False
             if hay_barco_adyacente:
                 rotar_pinza = True
                 rospy.loginfo(
@@ -689,27 +705,27 @@ class RobotAttackExecutor:
                     "rotando pinza 90 grados",
                     cell,
                 )
+                
+        if rotar_pinza:
+            q_old = [
+                pose_actual.orientation.x,
+                pose_actual.orientation.y,
+                pose_actual.orientation.z,
+                pose_actual.orientation.w,
+            ]
+            roll, pitch, yaw = euler_from_quaternion(q_old)
+            yaw += math.pi / 2.0  # +90 grados
 
-            if rotar_pinza:
-                q_old = [
-                    pose_actual.orientation.x,
-                    pose_actual.orientation.y,
-                    pose_actual.orientation.z,
-                    pose_actual.orientation.w,
-                ]
-                roll, pitch, yaw = euler_from_quaternion(q_old)
-                yaw += math.pi / 2.0  # +90 grados
+            q_new = quaternion_from_euler(roll, pitch, yaw)
+            pose_actual.orientation.x = q_new[0]
+            pose_actual.orientation.y = q_new[1]
+            pose_actual.orientation.z = q_new[2]
+            pose_actual.orientation.w = q_new[3]
 
-                q_new = quaternion_from_euler(roll, pitch, yaw)
-                pose_actual.orientation.x = q_new[0]
-                pose_actual.orientation.y = q_new[1]
-                pose_actual.orientation.z = q_new[2]
-                pose_actual.orientation.w = q_new[3]
-
-                rospy.loginfo(
-                    "[robot_attack_executor] [PLACE] Pinza rotada 90 grados en yaw (celda %s)",
-                    cell,
-                )
+            rospy.loginfo(
+                "[robot_attack_executor] [PLACE] Pinza rotada 90 grados en yaw (celda %s)",
+                cell,
+            )
 
         pose_actual.position.z += delta_z
         ok = self.control.mover_trayectoria([pose_actual])
@@ -757,6 +773,7 @@ class RobotAttackExecutor:
                 "nuevo bloque centrado a 2.6 cm del suelo",
                 cell,
             )
+            self.ship_cells_set_hit.add(cell)
         else:
             # Primer bloque en esa celda: apoyado en el tablero
             pose_caja.position.z = self.board_surface_z + self.ammo_box_size / 2.0

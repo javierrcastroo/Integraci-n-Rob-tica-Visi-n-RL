@@ -1,20 +1,23 @@
 import numpy as np
 import cv2
 
-# Colores BGR típicos en CV2
-COLOR_BACKGROUND = (40, 40, 40)
-COLOR_GRID = (100, 100, 100)
+# Colores BGR típicos en CV2 (más claros para que no parezca todo negro)
+COLOR_BACKGROUND = (0, 0, 0)          # negro fondo
+COLOR_GRID = (255, 255, 255)          # blanco rejilla
 
-COLOR_UNKNOWN = (70, 70, 70)      # gris oscuro
-COLOR_MISS = (255, 150, 0)        # azul claro brillante
-COLOR_HIT = (0, 0, 255)           # rojo
+COLOR_UNKNOWN = (180, 180, 180)       # gris claro
+COLOR_MISS = (0, 255, 255)            # amarillo/cian brillante
+COLOR_HIT = (0, 0, 255)               # rojo
 
 CELL_SIZE = 80     # píxeles
 MARGIN = 60        # espacio para las letras A B C...
 
 def draw_guess_board(guess_board, last_shot=None, title="Guess Board"):
     """
-    guess_board : matriz 5x5 con valores {0,1,2}
+    guess_board : matriz NxN con valores {0,1,2}
+        0 = desconocido
+        1 = agua (miss)
+        2 = tocado/hundido (hit)
     last_shot  : (row, col) o None
     """
     board_size = guess_board.shape[0]
@@ -25,21 +28,21 @@ def draw_guess_board(guess_board, last_shot=None, title="Guess Board"):
 
     # Texto del título
     cv2.putText(img, title, (10, 35),
-                cv2.FONT_HERSHEY_SIMPLEX, 1, (255,255,255), 2)
+                cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
 
     # Coordenadas verticales (A,B,C...)
     for r in range(board_size):
         text = chr(ord('A') + r)
-        y = MARGIN + r * CELL_SIZE + CELL_SIZE//2 + 10
+        y = MARGIN + r * CELL_SIZE + CELL_SIZE // 2 + 10
         cv2.putText(img, text, (20, y),
-                    cv2.FONT_HERSHEY_SIMPLEX, 1, (255,255,255), 2)
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
 
     # Coordenadas horizontales (1,2,3...)
     for c in range(board_size):
-        text = str(c+1)
-        x = MARGIN + c * CELL_SIZE + CELL_SIZE//2 - 10
+        text = str(c + 1)
+        x = MARGIN + c * CELL_SIZE + CELL_SIZE // 2 - 10
         cv2.putText(img, text, (x, 50),
-                    cv2.FONT_HERSHEY_SIMPLEX, 1, (255,255,255), 2)
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
 
     # Dibuja celdas
     for r in range(board_size):
@@ -73,6 +76,6 @@ def draw_guess_board(guess_board, last_shot=None, title="Guess Board"):
         y2 = y1 + CELL_SIZE
         x1 = MARGIN + c * CELL_SIZE
         x2 = x1 + CELL_SIZE
-        cv2.rectangle(img, (x1, y1), (x2, y2), (0,255,255), 4)  # amarillo
+        cv2.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), 4)  # verde
 
     return img
