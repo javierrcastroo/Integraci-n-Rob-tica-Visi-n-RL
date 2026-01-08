@@ -111,7 +111,7 @@ class GameLogicNode(object):
 
         # subs & pubs
         self.rl_layout_pub = rospy.Publisher(
-            "/game/rl/layout",
+            "/game/layout",
             String,
             queue_size=1,
             latch=True
