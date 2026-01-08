@@ -57,8 +57,17 @@ def calibrar(img_dir="calib_images", out_file="camera_params.npz", rows=9, cols=
     ret, camera_matrix, dist_coeffs, rvecs, tvecs = cv2.calibrateCamera(
         objpoints, imgpoints, gray_shape, None, None
     )
-    np.savez(out_file, camera_matrix=camera_matrix, dist_coeffs=dist_coeffs)
+
+    # gray_shape es (w, h)
+    image_size = np.array(gray_shape, dtype=np.int32)
+
+    np.savez(out_file,
+             camera_matrix=camera_matrix,
+             dist_coeffs=dist_coeffs,
+             image_size=image_size)
+
     print("[INFO] guardado", out_file)
+    print("[INFO] tamaño de calibración (w,h) =", gray_shape)
 
 if __name__ == "__main__":
     print("1) capturar  2) calibrar")

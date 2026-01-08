@@ -309,10 +309,24 @@ class BoardMainNode:
 
         self.mtx = None
         self.dist = None
+        self.new_mtx = None
+        self.calib_size = None  # (w_calib, h_calib)
+
         if USE_UNDISTORT_BOARD and os.path.exists(BOARD_CAMERA_PARAMS_PATH):
+            rospy.loginfo("[board_main] Cargando parámetros de cámara desde %s", BOARD_CAMERA_PARAMS_PATH)
             data = np.load(BOARD_CAMERA_PARAMS_PATH)
+
             self.mtx = data["camera_matrix"]
             self.dist = data["dist_coeffs"]
+
+            # Si en el npz hemos guardado también el tamaño de calibración:
+            if "image_size" in data.files:
+                # image_size = (w, h)
+                self.calib_size = tuple(map(int, data["image_size"]))
+                rospy.loginfo("[board_main] Tamaño de calibración: %s", self.calib_size)
+            else:
+                rospy.logwarn("[board_main] El npz no tiene 'image_size'. Asumimos misma resolución cámara/calibración.")
+
 
         self.board_state = board_state.init_board_state("T1")
 
@@ -596,9 +610,41 @@ class BoardMainNode:
             if frame is None:
                 self.loop_rate.sleep()
                 continue
-
+            
             if self.mtx is not None and self.dist is not None:
-                frame = cv2.undistort(frame, self.mtx, self.dist)
+                h, w = frame.shape[:2]
+
+                # 1) Escalamos la camera_matrix si la resolución actual es distinta de la de calibración
+                if self.calib_size is not None:
+                    w_calib, h_calib = self.calib_size
+                    if (w, h) != (w_calib, h_calib):
+                        sx = float(w) / float(w_calib)
+                        sy = float(h) / float(h_calib)
+                        S = np.array([[sx, 0,  0],
+                                      [0,  sy, 0],
+                                      [0,  0,  1]], dtype=np.float32)
+                        mtx_scaled = S @ self.mtx
+                        # opcional: loguear una sola vez
+                        if self.new_mtx is None:
+                            rospy.logwarn("[board_main] Escalando camera_matrix de %sx%s a %sx%s", 
+                                          w_calib, h_calib, w, h)
+                    else:
+                        mtx_scaled = self.mtx
+                else:
+                    # No sabemos el tamaño de calibración, asumimos que coincide
+                    mtx_scaled = self.mtx
+
+                # 2) Calculamos newCameraMatrix una sola vez
+                if self.new_mtx is None:
+                    # alpha=0 -> menos zonas negras, recorta un poco; alpha=1 -> conserva todo
+                    self.new_mtx, roi = cv2.getOptimalNewCameraMatrix(
+                        mtx_scaled, self.dist, (w, h), alpha=0, newImgSize=(w, h)
+                    )
+                    rospy.loginfo("[board_main] Calculada newCameraMatrix para undistort. ROI=%s", roi)
+
+                # 3) Undistort usando la matriz escalada y la new_mtx
+                frame = cv2.undistort(frame, mtx_scaled, self.dist, None, self.new_mtx)
+
 
             # Actualiza GLOBAL_ORIGIN (ArUco) en coordenadas pixel
             aruco_utils.update_global_origin_from_aruco(frame, aruco_id=2)
