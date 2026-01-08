@@ -22,21 +22,26 @@ model_stdout = None
 
 last_action = None
 fire_pub = None
+rl_truth_board = None
 guess_window_name = "Guess Board"
+truth_window_name = "Tablero Agente RL"
 
 # Matriz interna que refleja cómo el agente "ve" el tablero
 guess_board = np.zeros((BOARD_SIZE, BOARD_SIZE), dtype=np.int8)
 
 
-def update_gui():
+def update_guis():
     """Redibuja el tablero de guess en la ventana (solo desde el hilo principal)."""
-    global last_action, guess_board
+    global last_action, guess_board, rl_truth_board
 
     img = draw_guess_board(guess_board, last_shot=last_action)
+    cv2.imshow(guess_window_name, img)
     # Debug opcional:
     # rospy.loginfo(f"[refuerzo] img shape={img.shape}, dtype={img.dtype}, "
     #               f"min={img.min()}, max={img.max()}")
-    cv2.imshow(guess_window_name, img)
+    if rl_truth_board is not None:
+        img_truth = draw_guess_board(rl_truth_board, last_shot=None)
+        cv2.imshow(truth_window_name, img_truth)
     # Importante: waitKey en el mismo hilo siempre
     cv2.waitKey(1)
 
@@ -51,9 +56,22 @@ def mark_diagonals_as_miss(y, x):
             if guess_board[ny, nx] == 0:
                 guess_board[ny, nx] = 1
 
+def rl_layout_cb(msg):
+    global rl_truth_board
+    
+    layout = json.loads(msg.data)
+    rl_truth_board = np.ones((BOARD_SIZE, BOARD_SIZE), dtype=np.int8)  # todo agua
+
+    for c, r in layout.get("ship_two_cells", []):
+        rl_truth_board[r, c] = 2
+
+    for c, r in layout.get("ship_one_cells", []):
+        rl_truth_board[r, c] = 2
+
+    rospy.loginfo(f"[refuerzo] Layout RL recibido: {layout}")
 
 def index_to_coord(row, col):
-    return f"{chr(ord('A') + row)}{col + 1}"
+    return f"{chr(ord('A') + col)}{row + 1}"
 
 
 def stream_server_stderr(proc):
@@ -226,9 +244,10 @@ if __name__ == "__main__":
 
     # Crear ventana de OpenCV en el hilo principal (igual que en hand_main_viewer)
     cv2.namedWindow(guess_window_name)
+    cv2.namedWindow(truth_window_name)
 
     # Pintar tablero vacío al inicio
-    update_gui()
+    update_guis()
 
     # Lanzar modelo RL en venv_rl
     start_rl_server()
@@ -238,14 +257,13 @@ if __name__ == "__main__":
     rospy.Subscriber("/game/your_turn", Empty, your_turn_callback)
     rospy.Subscriber("/game/feedback", String, feedback_callback)
     rospy.Subscriber("/game/state", String, state_callback)
+    rospy.Subscriber("/game/layout", String, rl_layout_cb,queue_size=1)
 
     rospy.loginfo("[refuerzo] Nodo iniciado. Esperando turnos...")
 
-    # Bucle principal: SOLO aquí se hace imshow + waitKey,
-    # igual que en hand_main_viewer (sin rospy.spin()).
     rate = rospy.Rate(15)  # 15 FPS de refresco
     while not rospy.is_shutdown():
-        update_gui()
+        update_guis()
         rate.sleep()
 
     cv2.destroyAllWindows()
