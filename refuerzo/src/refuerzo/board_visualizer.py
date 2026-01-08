@@ -10,7 +10,7 @@ COLOR_MISS = (255, 150, 0)
 COLOR_HIT = (0, 0, 255) 
 
 CELL_SIZE = 80     # píxeles
-MARGIN = 60        # espacio para las letras A B C...
+MARGIN = 70        # espacio para las letras A B C...
 
 def draw_guess_board(guess_board, last_shot=None, title="Guess Board"):
     """
@@ -27,21 +27,21 @@ def draw_guess_board(guess_board, last_shot=None, title="Guess Board"):
     img = np.full((img_size, img_size, 3), COLOR_BACKGROUND, dtype=np.uint8)
 
     # Texto del título
-    cv2.putText(img, title, (10, 35),
+    cv2.putText(img, title, (10, 30),
                 cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
 
-    # Coordenadas verticales (A,B,C...)
-    for r in range(board_size):
-        text = chr(ord('A') + r)
-        y = MARGIN + r * CELL_SIZE + CELL_SIZE // 2 + 10
-        cv2.putText(img, text, (20, y),
+    # Coordenadas horizontales (A,B,C...) → columnas
+    for c in range(board_size):
+        text = chr(ord('A') + c)
+        x = MARGIN + c * CELL_SIZE + CELL_SIZE // 2 - 10
+        cv2.putText(img, text, (x, 70),
                     cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
 
-    # Coordenadas horizontales (1,2,3...)
-    for c in range(board_size):
-        text = str(c + 1)
-        x = MARGIN + c * CELL_SIZE + CELL_SIZE // 2 - 10
-        cv2.putText(img, text, (x, 50),
+    # Coordenadas verticales (1,2,3...) → filas
+    for r in range(board_size):
+        text = str(r + 1)
+        y = MARGIN + r * CELL_SIZE + CELL_SIZE // 2 + 10
+        cv2.putText(img, text, (20, y),
                     cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
 
     # Dibuja celdas
