@@ -48,7 +48,7 @@ for line in sys.stdin:
         obs = env._obs()
         mask = env._valid_action_mask()
 
-        action, _ = model.predict(obs, action_masks=mask, deterministic=True)
+        action, _ = model.predict(obs, action_masks=mask, deterministic=False)
         print(f"---->[ACCION]: {action} | mask[action]={mask[action]}", file=sys.stderr)
         print(f"---->[MASK]: {mask}", file=sys.stderr)
         
