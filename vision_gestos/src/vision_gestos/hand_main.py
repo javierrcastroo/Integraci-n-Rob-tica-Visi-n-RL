@@ -31,7 +31,7 @@ from classifier import knn_predict
 from storage import save_gesture_example, load_gesture_gallery, save_sequence_json
 from collections import deque
 
-GESTURE_WINDOW_FRAMES = 300
+GESTURE_WINDOW_FRAMES = 100
 MAX_SEQUENCE_LENGTH = 2
 TRIGGER_GESTURE = "5dedos"
 CONFIRM_GESTURE = "ok"
@@ -125,7 +125,7 @@ def main():
     capture_state = "STANDBY"
     pending_candidate = None
     gesture_window = GestureWindow()
-    status_lines = ["Standby: haz 'demond' para activar el registro."]
+    status_lines = ["Standby: haz '5dedos' para activar el registro."]
 
     def set_state(new_state, lines):
         nonlocal capture_state, status_lines
@@ -318,7 +318,6 @@ def main():
             ord('3'),
             ord('4'),
             ord('5'),
-            ord('d'),
             ord('p'),
             ord('-'),
             ord('n'),
@@ -330,7 +329,6 @@ def main():
                 ord('3'): "3dedos",
                 ord('4'): "4dedos",
                 ord('5'): "5dedos",
-                ord('d'): "demonio",
                 ord('p'): "ok",
                 ord('-'): "cool",
                 ord('n'): "nook",

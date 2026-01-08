@@ -12,8 +12,8 @@ measure_points = []   # lista de (x, y)
 
 def board_mouse_callback(event, x, y, flags, param):
     """
-    - Botón izquierdo: definir ROI del tablero (para calibrar HSV con 'b', 'o', 'm', ...)
-    - Botón derecho: añadir punto de medida
+    - Boton izquierdo: definir ROI del tablero (para calibrar HSV con 'b', 'o', 'm', ...)
+    - Boton derecho: añadir punto de medida
     """
     global board_roi_selecting, board_roi_defined
     global bx_start, by_start, bx_end, by_end
@@ -36,14 +36,14 @@ def board_mouse_callback(event, x, y, flags, param):
     elif event == cv2.EVENT_RBUTTONDOWN:
         # añadir punto de medida
         measure_points.append((x, y))
-        # si hay más de 2, reseteamos para empezar otra medida
+        # si hay mas de 2, reseteamos para empezar otra medida
         if len(measure_points) > 2:
             measure_points = [(x, y)]  # empezamos de nuevo solo con este
 
 
 def draw_board_roi(img):
     """
-    Dibuja el rectángulo del ROI si se está seleccionando.
+    Dibuja el rectangulo del ROI si se esta seleccionando.
     """
     if board_roi_selecting or board_roi_defined:
         cv2.rectangle(
@@ -67,7 +67,7 @@ def draw_measure_points(img):
 
 def draw_board_hud(img):
     """
-    HUD con las teclas específicas del tablero.
+    HUD con las teclas especificas del tablero.
     """
     y0 = 20
     dy = 18

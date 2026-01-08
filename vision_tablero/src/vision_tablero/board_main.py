@@ -30,7 +30,7 @@ class LayoutAccumulator:
     Acumulador (promedio temporal):
     - ship_two / ship_one por celdas (votes)
     - corners del tablero en aruco (ya viene en layout_info)
-    - munición GLOBAL (xy_aruco) + pixel/offset para estabilizar IDs
+    - municion GLOBAL (xy_aruco) + pixel/offset para estabilizar IDs
     - ratio_cm_per_pix y board_quad_pixel (promedio)
     """
 
@@ -78,8 +78,8 @@ class LayoutAccumulator:
                 cell = tuple(cell)
                 entry["ship_one_counts"][cell] += 1
 
-            # detections (pixel/offset) solo para estabilizar promedios/depuración;
-            # luego se eliminarán al minimizar JSON.
+            # detections (pixel/offset) solo para estabilizar promedios/depuracion;
+            # luego se eliminaran al minimizar JSON.
             for det in layout.get("ship_two_detections", []):
                 cell = det.get("cell")
                 if cell is None:
@@ -296,12 +296,13 @@ class BoardMainNode:
         self.status_lines = ["Ajusta HSV y pulsa 's' para enviar el tablero."]
         self.accumulator: Optional[LayoutAccumulator] = None
         self.capture_reason = "manual"
+        self.debug = True
 
         # Igual que debug: cell_cm configurable
         self.cell_cm = float(rospy.get_param("~cell_cm", 3.85))
 
         image_topic = rospy.get_param("~image_topic", "/camara_tablero/usb_cam/image_raw")
-        rospy.loginfo("[board_main] Suscribiéndose a %s", image_topic)
+        rospy.loginfo("[board_main] Suscribiendose a %s", image_topic)
         self.image_sub = rospy.Subscriber(image_topic, Image, self.cb_image, queue_size=1)
 
         self.board_pub = rospy.Publisher("battleship/board_layout", String, queue_size=10)
@@ -313,19 +314,19 @@ class BoardMainNode:
         self.calib_size = None  # (w_calib, h_calib)
 
         if USE_UNDISTORT_BOARD and os.path.exists(BOARD_CAMERA_PARAMS_PATH):
-            rospy.loginfo("[board_main] Cargando parámetros de cámara desde %s", BOARD_CAMERA_PARAMS_PATH)
+            rospy.loginfo("[board_main] Cargando parametros de camara desde %s", BOARD_CAMERA_PARAMS_PATH)
             data = np.load(BOARD_CAMERA_PARAMS_PATH)
 
             self.mtx = data["camera_matrix"]
             self.dist = data["dist_coeffs"]
 
-            # Si en el npz hemos guardado también el tamaño de calibración:
+            # Si en el npz hemos guardado tambien el tamaño de calibracion:
             if "image_size" in data.files:
                 # image_size = (w, h)
                 self.calib_size = tuple(map(int, data["image_size"]))
-                rospy.loginfo("[board_main] Tamaño de calibración: %s", self.calib_size)
+                rospy.loginfo("[board_main] Tamaño de calibracion: %s", self.calib_size)
             else:
-                rospy.logwarn("[board_main] El npz no tiene 'image_size'. Asumimos misma resolución cámara/calibración.")
+                rospy.logwarn("[board_main] El npz no tiene 'image_size'. Asumimos misma resolucion camara/calibracion.")
 
 
         self.board_state = board_state.init_board_state("T1")
@@ -376,7 +377,7 @@ class BoardMainNode:
         Genera cell_centers_aruco (col,row)->xy_aruco en metros:
         - Preferente: usando (GLOBAL_ORIGIN px) + (board_quad_pixel) + (ratio_cm_per_pix)
           reconstruyendo H_warp y proyectando centro de cada celda a imagen.
-        - Fallback: rejilla ideal con self.cell_cm (NO geométrica real, solo aproximación).
+        - Fallback: rejilla ideal con self.cell_cm (NO geometrica real, solo aproximacion).
         """
         board_size = layout.get("board_size") or board_tracker.BOARD_SQUARES
         origin = board_state.GLOBAL_ORIGIN
@@ -426,14 +427,14 @@ class BoardMainNode:
                             "col": col,
                             "row": row,
                             "xy_aruco": [x_m, y_m],
-                            # debug útil para overlay; se elimina en minimización
+                            # debug util para overlay; se elimina en minimizacion
                             "ctr_img_px": [float(ctr_img[0]), float(ctr_img[1])],
                         }
                     )
         else:
-            # Fallback: no podemos reconstruir XY reales en frame ArUco porque falta geometría.
-            # (típicamente: GLOBAL_ORIGIN no detectado, quad no disponible, o ratio_cm_per_pix None)
-            rospy.logwarn("No podemos reconstruir XY reales en frame ArUco porque falta geometría.")
+            # Fallback: no podemos reconstruir XY reales en frame ArUco porque falta geometria.
+            # (tipicamente: GLOBAL_ORIGIN no detectado, quad no disponible, o ratio_cm_per_pix None)
+            rospy.logwarn("No podemos reconstruir XY reales en frame ArUco porque falta geometria.")
 
         out["cell_centers_aruco"] = cell_centers
         out["cell_size_m"] = self.cell_cm / 100.0
@@ -442,7 +443,7 @@ class BoardMainNode:
     def _minimize_layout_for_robot(self, layout: dict) -> dict:
         """
         Reduce el layout a lo estrictamente necesario para RobotAttackExecutor.
-        Elimina píxeles, offsets y duplicados que no se consumen.
+        Elimina pixeles, offsets y duplicados que no se consumen.
         """
         out = {
             "name": layout.get("name", "T1"),
@@ -451,14 +452,14 @@ class BoardMainNode:
             # MoveIt board plane (4 corners in meters, ArUco frame)
             "board_corners_aruco": layout.get("board_corners_aruco", []),
 
-            # Triangulación por celda: (col,row)->xy_aruco (meters)
+            # Triangulacion por celda: (col,row)->xy_aruco (meters)
             "cell_centers_aruco": [],
 
-            # Obstáculos barcos por celdas
+            # Obstaculos barcos por celdas
             "ship_two_cells": layout.get("ship_two_cells", []),
             "ship_one_cells": layout.get("ship_one_cells", []),
 
-            # Munición fuera de tablero: lista de puntos en el frame ArUco (meters)
+            # Municion fuera de tablero: lista de puntos en el frame ArUco (meters)
             "ammo_points_aruco": [],
         }
 
@@ -492,7 +493,7 @@ class BoardMainNode:
         return out
 
     # -------------------------
-    # Publicación (ROS) - igual que debug pero publicando
+    # Publicacion (ROS) - igual que debug pero publicando
     # -------------------------
     def publish_layouts(self, layouts: List[dict]) -> None:
         boards = []
@@ -521,29 +522,29 @@ class BoardMainNode:
                     self.publish_layouts(averaged)
                     self.status_lines = [
                         f"Layout enviado ({self.capture_reason}).",
-                        "Standby: esperando peticiones automáticas.",
+                        "Standby: esperando peticiones automaticas.",
                     ]
                 else:
                     self.status_lines = [
-                        "No se detectó un tablero estable durante la captura.",
-                        "Repite la operación cuando haya imagen.",
+                        "No se detecto un tablero estable durante la captura.",
+                        "Repite la operacion cuando haya imagen.",
                     ]
                 self.capture_state = "STANDBY"
 
         elif self.capture_state == "STANDBY":
             self.capture_progress = 0.0
             if not self.status_lines:
-                self.status_lines = ["Standby: esperando petición del juego."]
+                self.status_lines = ["Standby: esperando peticion del juego."]
         else:
             self.capture_progress = 0.0
             if not self.status_lines:
                 self.status_lines = ["Ajusta HSV y pulsa 's' para enviar el tablero."]
 
     def request_cb(self, msg):
-        reason = msg.data if msg and msg.data else "petición automática"
-        rospy.loginfo("[board_main] Petición externa de layout: %s", reason)
+        reason = msg.data if msg and msg.data else "peticion automatica"
+        rospy.loginfo("[board_main] Peticion externa de layout: %s", reason)
         if self.capture_state == "WAIT_TRIGGER":
-            self.status_lines = ["Petición recibida, iniciando captura de tablero."]
+            self.status_lines = ["Peticion recibida, iniciando captura de tablero."]
         self.start_capture(reason)
 
     def handle_keys(self, key: int, frame: np.ndarray) -> None:
@@ -602,7 +603,10 @@ class BoardMainNode:
             object_tracker.current_ship_two_ranges = []
             object_tracker.current_ship_one_ranges = []
             object_tracker.current_ammo_ranges = []
-            print("[INFO] RESET: limpiados rangos HSV (tablero/barcos/munición)")
+            print("[INFO] RESET: limpiados rangos HSV (tablero/barcos/municion)")
+            
+        elif key == ord("d"):
+            self.debug = not self.debug
 
     def spin(self):
         while not rospy.is_shutdown():
@@ -614,7 +618,7 @@ class BoardMainNode:
             if self.mtx is not None and self.dist is not None:
                 h, w = frame.shape[:2]
 
-                # 1) Escalamos la camera_matrix si la resolución actual es distinta de la de calibración
+                # 1) Escalamos la camera_matrix si la resolucion actual es distinta de la de calibracion
                 if self.calib_size is not None:
                     w_calib, h_calib = self.calib_size
                     if (w, h) != (w_calib, h_calib):
@@ -631,7 +635,7 @@ class BoardMainNode:
                     else:
                         mtx_scaled = self.mtx
                 else:
-                    # No sabemos el tamaño de calibración, asumimos que coincide
+                    # No sabemos el tamaño de calibracion, asumimos que coincide
                     mtx_scaled = self.mtx
 
                 # 2) Calculamos newCameraMatrix una sola vez
@@ -657,135 +661,137 @@ class BoardMainNode:
                 warp_size=WARP_SIZE,
                 cell_cm=self.cell_cm
             )
+            
+            if self.debug :
 
-            # =========================
-            # VISUAL DEBUG
-            # =========================
-            try:
-                if layouts and board_state.GLOBAL_ORIGIN is not None:
-                    # usa el layout "ya enriquecido"
-                    l_dbg = self._with_cartesian_coords(layouts[0])
-
-                    gx, gy = map(int, board_state.GLOBAL_ORIGIN)
-                    # pinta el origen
-                    cv2.circle(vis, (gx, gy), 6, (0, 255, 0), -1)
-
-                    centers = l_dbg.get("cell_centers_aruco", [])
-                    for e in centers:
-                        col = int(e["col"]);
-                        row = int(e["row"])
-                        x_m, y_m = e["xy_aruco"]
-                        px = e.get("ctr_img_px")
-                        if not px:
-                            continue
-                        cx, cy = int(px[0]), int(px[1])
-
-                        # punto centro
-                        cv2.circle(vis, (cx, cy), 3, (255, 255, 255), -1)
-
-                        # vector desde ArUco a centro
-                        cv2.line(vis, (gx, gy), (cx, cy), (200, 200, 200), 1)
-
-                        # etiqueta compacta: (c,r) y (x,y) en cm
-                        txt1 = f"(c,r)=({col},{row})"
-                        txt2 = f"x{(x_m * 100):.2f}"
-                        txt3 = f"y{(y_m * 100):.2f}"
-
-                        cv2.putText(vis, txt1, (cx + 3, cy - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.32, (255, 255, 255), 1)
-                        cv2.putText(vis, txt2, (cx + 3, cy + 2), cv2.FONT_HERSHEY_SIMPLEX, 0.32, (255, 255, 255), 1)
-                        cv2.putText(vis, txt3, (cx + 3, cy + 12), cv2.FONT_HERSHEY_SIMPLEX, 0.32, (255, 255, 255), 1)
-
-                ammo_global = layouts[0].get("ammo_global_detections", []) if layouts else []
-                if ammo_global and board_state.GLOBAL_ORIGIN is not None:
-                    gx, gy = map(int, board_state.GLOBAL_ORIGIN)
-
-                    # orden estable para que el id sea consistente (izq->der, arriba->abajo)
-                    ammo_global_sorted = sorted(
-                        ammo_global,
-                        key=lambda det: (
-                            det.get("pixel", det.get("offset_from_origin", (0, 0)))[0],
-                            det.get("pixel", det.get("offset_from_origin", (0, 0)))[1],
-                        ),
-                    )
-
-                    for idx, det in enumerate(ammo_global_sorted):
-                        px = det.get("pixel")  # (x_px, y_px) en imagen original
-                        xy = det.get("xy_aruco")  # (x_m, y_m) respecto al ArUco (en metros)
-
-                        if px is None:
-                            continue
-
-                        ax, ay = int(px[0]), int(px[1])
-
-                        # punto munición
-                        cv2.circle(vis, (ax, ay), 5, (255, 255, 255), -1)
-
-                        # vector ArUco -> munición
-                        cv2.line(vis, (gx, gy), (ax, ay), (200, 200, 200), 1)
-
-                        # texto: id + xy en cm si existe
-                        txt1 = f"AMMO#{idx}"
-                        if xy is not None and len(xy) == 2:
-                            x_cm = float(xy[0]) * 100.0
-                            y_cm = float(xy[1]) * 100.0
-                            txt2 = f"x{x_cm:.2f}"
-                            txt3 = f"y{y_cm:.2f}"
-                        else:
-                            txt2 = "x?"
-                            txt3 = "y?"
-
-                        cv2.putText(vis, txt1, (ax + 3, ay - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.32, (255, 255, 255), 1)
-                        cv2.putText(vis, txt2, (ax + 3, ay + 2), cv2.FONT_HERSHEY_SIMPLEX, 0.32, (255, 255, 255), 1)
-                        cv2.putText(vis, txt3, (ax + 3, ay + 12), cv2.FONT_HERSHEY_SIMPLEX, 0.32, (255, 255, 255), 1)
                 # =========================
-                # ESQUINAS DEL TABLERO: overlay ArUco -> esquinas
+                # VISUAL DEBUG
                 # =========================
-                quad = layouts[0].get("board_quad_pixel") if layouts else None
-                ratio = layouts[0].get("ratio_cm_per_pix") if layouts else None
+                try:
+                    if layouts and board_state.GLOBAL_ORIGIN is not None:
+                        # usa el layout "ya enriquecido"
+                        l_dbg = self._with_cartesian_coords(layouts[0])
 
-                if quad is not None and len(quad) == 4 and board_state.GLOBAL_ORIGIN is not None and ratio is not None:
-                    gx, gy = map(int, board_state.GLOBAL_ORIGIN)
-                    ox, oy = board_state.GLOBAL_ORIGIN
+                        gx, gy = map(int, board_state.GLOBAL_ORIGIN)
+                        # pinta el origen
+                        cv2.circle(vis, (gx, gy), 6, (0, 255, 0), -1)
 
-                    # Si tu quad ya viene ordenado por board_tracker.order_points, perfecto.
-                    # Si no, lo ordenamos para tener TL,TR,BR,BL estable:
-                    q = np.array(quad, dtype=np.float32)
-                    q = board_tracker.order_points(q)  # TL,TR,BR,BL
+                        centers = l_dbg.get("cell_centers_aruco", [])
+                        for e in centers:
+                            col = int(e["col"]);
+                            row = int(e["row"])
+                            x_m, y_m = e["xy_aruco"]
+                            px = e.get("ctr_img_px")
+                            if not px:
+                                continue
+                            cx, cy = int(px[0]), int(px[1])
 
-                    corner_names = ["TL", "TR", "BR", "BL"]
+                            # punto centro
+                            cv2.circle(vis, (cx, cy), 3, (255, 255, 255), -1)
 
-                    for name, (px, py) in zip(corner_names, q):
-                        px_f, py_f = float(px), float(py)
+                            # vector desde ArUco a centro
+                            cv2.line(vis, (gx, gy), (cx, cy), (200, 200, 200), 1)
 
-                        # offset px desde el ArUco
-                        dx_px = px_f - float(ox)
-                        dy_px = py_f - float(oy)
+                            # etiqueta compacta: (c,r) y (x,y) en cm
+                            txt1 = f"(c,r)=({col},{row})"
+                            txt2 = f"x{(x_m * 100):.2f}"
+                            txt3 = f"y{(y_m * 100):.2f}"
 
-                        # a metros (xy_aruco)
-                        x_m = (dx_px * float(ratio)) / 100.0
-                        y_m = (dy_px * float(ratio)) / 100.0
+                            cv2.putText(vis, txt1, (cx + 3, cy - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.32, (255, 255, 255), 1)
+                            cv2.putText(vis, txt2, (cx + 3, cy + 2), cv2.FONT_HERSHEY_SIMPLEX, 0.32, (255, 255, 255), 1)
+                            cv2.putText(vis, txt3, (cx + 3, cy + 12), cv2.FONT_HERSHEY_SIMPLEX, 0.32, (255, 255, 255), 1)
 
-                        cx, cy = int(px_f), int(py_f)
+                    ammo_global = layouts[0].get("ammo_global_detections", []) if layouts else []
+                    if ammo_global and board_state.GLOBAL_ORIGIN is not None:
+                        gx, gy = map(int, board_state.GLOBAL_ORIGIN)
 
-                        # punto esquina
-                        cv2.circle(vis, (cx, cy), 6, (255, 255, 255), 2)
+                        # orden estable para que el id sea consistente (izq->der, arriba->abajo)
+                        ammo_global_sorted = sorted(
+                            ammo_global,
+                            key=lambda det: (
+                                det.get("pixel", det.get("offset_from_origin", (0, 0)))[0],
+                                det.get("pixel", det.get("offset_from_origin", (0, 0)))[1],
+                            ),
+                        )
 
-                        # vector ArUco -> esquina
-                        cv2.line(vis, (gx, gy), (cx, cy), (200, 200, 200), 1)
+                        for idx, det in enumerate(ammo_global_sorted):
+                            px = det.get("pixel")  # (x_px, y_px) en imagen original
+                            xy = det.get("xy_aruco")  # (x_m, y_m) respecto al ArUco (en metros)
 
-                        # texto (3 líneas compactas como casillas)
-                        txt1 = f"{name}"
-                        txt2 = f"x{(x_m * 100):.2f}"
-                        txt3 = f"y{(y_m * 100):.2f}"
+                            if px is None:
+                                continue
 
-                        cv2.putText(vis, txt1, (cx + 3, cy - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.32, (255, 255, 255), 1)
-                        cv2.putText(vis, txt2, (cx + 3, cy + 2), cv2.FONT_HERSHEY_SIMPLEX, 0.32, (255, 255, 255), 1)
-                        cv2.putText(vis, txt3, (cx + 3, cy + 12), cv2.FONT_HERSHEY_SIMPLEX, 0.32, (255, 255, 255), 1)
-            except Exception as exc:
-                print("[WARN] overlay debug failed:", exc)
+                            ax, ay = int(px[0]), int(px[1])
+
+                            # punto municion
+                            cv2.circle(vis, (ax, ay), 5, (255, 255, 255), -1)
+
+                            # vector ArUco -> municion
+                            cv2.line(vis, (gx, gy), (ax, ay), (200, 200, 200), 1)
+
+                            # texto: id + xy en cm si existe
+                            txt1 = f"AMMO#{idx}"
+                            if xy is not None and len(xy) == 2:
+                                x_cm = float(xy[0]) * 100.0
+                                y_cm = float(xy[1]) * 100.0
+                                txt2 = f"x{x_cm:.2f}"
+                                txt3 = f"y{y_cm:.2f}"
+                            else:
+                                txt2 = "x?"
+                                txt3 = "y?"
+
+                            cv2.putText(vis, txt1, (ax + 3, ay - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.32, (255, 255, 255), 1)
+                            cv2.putText(vis, txt2, (ax + 3, ay + 2), cv2.FONT_HERSHEY_SIMPLEX, 0.32, (255, 255, 255), 1)
+                            cv2.putText(vis, txt3, (ax + 3, ay + 12), cv2.FONT_HERSHEY_SIMPLEX, 0.32, (255, 255, 255), 1)
+                    # =========================
+                    # ESQUINAS DEL TABLERO: overlay ArUco -> esquinas
+                    # =========================
+                    quad = layouts[0].get("board_quad_pixel") if layouts else None
+                    ratio = layouts[0].get("ratio_cm_per_pix") if layouts else None
+
+                    if quad is not None and len(quad) == 4 and board_state.GLOBAL_ORIGIN is not None and ratio is not None:
+                        gx, gy = map(int, board_state.GLOBAL_ORIGIN)
+                        ox, oy = board_state.GLOBAL_ORIGIN
+
+                        # Si tu quad ya viene ordenado por board_tracker.order_points, perfecto.
+                        # Si no, lo ordenamos para tener TL,TR,BR,BL estable:
+                        q = np.array(quad, dtype=np.float32)
+                        q = board_tracker.order_points(q)  # TL,TR,BR,BL
+
+                        corner_names = ["TL", "TR", "BR", "BL"]
+
+                        for name, (px, py) in zip(corner_names, q):
+                            px_f, py_f = float(px), float(py)
+
+                            # offset px desde el ArUco
+                            dx_px = px_f - float(ox)
+                            dy_px = py_f - float(oy)
+
+                            # a metros (xy_aruco)
+                            x_m = (dx_px * float(ratio)) / 100.0
+                            y_m = (dy_px * float(ratio)) / 100.0
+
+                            cx, cy = int(px_f), int(py_f)
+
+                            # punto esquina
+                            cv2.circle(vis, (cx, cy), 6, (255, 255, 255), 2)
+
+                            # vector ArUco -> esquina
+                            cv2.line(vis, (gx, gy), (cx, cy), (200, 200, 200), 1)
+
+                            # texto (3 lineas compactas como casillas)
+                            txt1 = f"{name}"
+                            txt2 = f"x{(x_m * 100):.2f}"
+                            txt3 = f"y{(y_m * 100):.2f}"
+
+                            cv2.putText(vis, txt1, (cx + 3, cy - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.32, (255, 255, 255), 1)
+                            cv2.putText(vis, txt2, (cx + 3, cy + 2), cv2.FONT_HERSHEY_SIMPLEX, 0.32, (255, 255, 255), 1)
+                            cv2.putText(vis, txt3, (cx + 3, cy + 12), cv2.FONT_HERSHEY_SIMPLEX, 0.32, (255, 255, 255), 1)
+                except Exception as exc:
+                    print("[WARN] overlay debug failed:", exc)
 
             validation_map = {}
-            # Evaluación (igual que antes)
+            # Evaluacion (igual que antes)
             for layout in layouts:
                 ok, msg = battleship_logic.evaluate_board(layout)
                 validation_map[layout.get("name", "?")] = (ok, msg)

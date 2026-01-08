@@ -2,12 +2,12 @@ import numpy as np
 import cv2
 
 # Colores BGR típicos en CV2 (más claros para que no parezca todo negro)
-COLOR_BACKGROUND = (0, 0, 0)          # negro fondo
-COLOR_GRID = (255, 255, 255)          # blanco rejilla
+COLOR_BACKGROUND = (40, 40, 40)
+COLOR_GRID = (100, 100, 100)
 
-COLOR_UNKNOWN = (180, 180, 180)       # gris claro
-COLOR_MISS = (0, 255, 255)            # amarillo/cian brillante
-COLOR_HIT = (0, 0, 255)               # rojo
+COLOR_UNKNOWN = (70, 70, 70)      
+COLOR_MISS = (255, 150, 0)        
+COLOR_HIT = (0, 0, 255) 
 
 CELL_SIZE = 80     # píxeles
 MARGIN = 60        # espacio para las letras A B C...

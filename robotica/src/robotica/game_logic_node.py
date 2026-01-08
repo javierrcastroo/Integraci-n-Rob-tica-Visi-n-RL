@@ -2,7 +2,6 @@
 import os
 import sys
 import json
-import random
 import rospy
 from std_msgs.msg import String, Empty
 
@@ -12,34 +11,6 @@ if CURRENT_DIR not in sys.path:
     sys.path.insert(0, CURRENT_DIR)
 
 from battleship_logic import evaluate_board
-
-RL_BOARDS = [
-    {
-        "id": "RL_1",
-        "ship_two_cells": [[0, 0], [1, 0]],
-        "ship_one_cells": [[3, 0], [0, 3], [4, 4]],
-    },
-    {
-        "id": "RL_2",
-        "ship_two_cells": [[2, 1], [2, 2]],
-        "ship_one_cells": [[0, 0], [4, 1], [1, 4]],
-    },
-    {
-        "id": "RL_3",
-        "ship_two_cells": [[3, 3], [4, 3]],
-        "ship_one_cells": [[0, 1], [2, 0], [1, 4]],
-    },
-    {
-        "id": "RL_4",
-        "ship_two_cells": [[1, 2], [1, 3]],
-        "ship_one_cells": [[3, 0], [4, 2], [0, 4]],
-    },
-    {
-        "id": "RL_5",
-        "ship_two_cells": [[0, 4], [1, 4]],
-        "ship_one_cells": [[3, 1], [4, 3], [2, 0]],
-    },
-]
 
 
 def _cells_from_layout(layout):
@@ -94,15 +65,6 @@ class GameLogicNode(object):
         self.ship_one_cells = set()   # contiene (col, row)
         self.all_ship_cells = set()   # contiene (col, row)
         self.hits = set()             # contiene (col, row)
-
-        self.rl_layout = random.choice(RL_BOARDS)
-        rospy.loginfo(f"[game_logic_node] RL usa tablero {self.rl_layout['id']}")
-        rl_two, rl_one = _cells_from_layout(self.rl_layout)
-        
-        self.rl_ship_two_cells = set(rl_two)
-        self.rl_ship_one_cells = set(rl_one)
-        self.rl_all_ship_cells = self.rl_ship_two_cells | self.rl_ship_one_cells
-        self.rl_hits = set()
 
         # --- HARDCODE: tablero 5x5, índices 0..4 ---
         self.max_col = 4
@@ -160,16 +122,6 @@ class GameLogicNode(object):
             lambda _: self.rl_turn_pub.publish(Empty()),
             oneshot=True
         )
-
-    def reset_rl_board(self):
-        self.rl_layout = random.choice(RL_BOARDS)
-        rospy.loginfo(f"[game_logic_node] Nuevo tablero RL {self.rl_layout['id']}")
-    
-        rl_two, rl_one = _cells_from_layout(self.rl_layout)
-        self.rl_ship_two_cells = set(rl_two)
-        self.rl_ship_one_cells = set(rl_one)
-        self.rl_all_ship_cells = self.rl_ship_two_cells | self.rl_ship_one_cells
-        self.rl_hits = set()
 
     # ---------- callback tablero ----------
     def board_cb(self, msg):
@@ -338,8 +290,8 @@ class GameLogicNode(object):
           - Letra -> columna (A=0, B=1, ...)
           - Número -> fila (1->0, 2->1, ...)
         """
-        if not self.rl_all_ship_cells:
-            rospy.logwarn("[game_logic_node] Tablero RL no inicializado")
+        if not self.board_valid or self.current_layout is None:
+            rospy.logwarn("[game_logic_node] RL ha atacado pero el tablero no es válido")
             return
 
         coord = msg.data.strip().upper()
@@ -371,7 +323,7 @@ class GameLogicNode(object):
         cell_name = _cell_name(col_idx, row_idx)
 
         # Ataque repetido
-        if cell in self.rl_hits:
+        if cell in self.hits:
             rospy.loginfo(f"[game_logic_node] Ataque RL repetido en {cell_name}")
             rospy.Timer(
                 rospy.Duration(0.2),
@@ -381,10 +333,10 @@ class GameLogicNode(object):
             return
 
         # Registramos impacto
-        self.rl_hits.add(cell)
+        self.hits.add(cell)
 
         # Agua vs impacto
-        if cell not in self.rl_all_ship_cells:
+        if cell not in self.all_ship_cells:
             # Agua
             rospy.loginfo(f"[game_logic_node] RL: Agua en {cell_name}")
             rospy.Timer(
@@ -399,18 +351,18 @@ class GameLogicNode(object):
         message = f"Tocado en {cell_name}"
 
         # ¿barco de 2 hundido?
-        if self.rl_ship_two_cells and cell in self.rl_ship_two_cells:
-            if self.rl_ship_two_cells.issubset(self.rl_hits):
+        if self.ship_two_cells and cell in self.ship_two_cells:
+            if self.ship_two_cells.issubset(self.hits):
                 result = "sunk"
                 message = f"Hundido barco de 2 (último impacto en {cell_name})"
 
         # ¿barco de 1 hundido?
-        if cell in self.rl_ship_one_cells:
+        if cell in self.ship_one_cells:
             result = "sunk"
             message = f"Hundido barco de 1 en {cell_name}"
 
         # ¿todos hundidos?
-        if self.rl_all_ship_cells and self.rl_all_ship_cells.issubset(self.rl_hits):
+        if self.all_ship_cells and self.all_ship_cells.issubset(self.hits):
             result = "sunk_all"
             message = f"¡Todos los barcos hundidos! Último impacto en {cell_name}"
 
@@ -441,7 +393,6 @@ class GameLogicNode(object):
                 lambda _: self.rl_state_pub.publish(String("win_agent")),
                 oneshot=True
             )
-            self.reset_rl_board()
 
     # ---------- publicación resultado ----------
     def publish_result(self, status, result, cell, message):
