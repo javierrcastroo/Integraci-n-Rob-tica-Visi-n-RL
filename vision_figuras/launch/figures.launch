@@ -1,0 +1,5 @@
+<launch>
+    <node pkg="vision_figuras" type="figuras_node.py" name="figuras_node" output="screen" />
+</launch>
+
+
