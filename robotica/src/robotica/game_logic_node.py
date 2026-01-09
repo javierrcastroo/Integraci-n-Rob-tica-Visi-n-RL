@@ -2,6 +2,7 @@
 import os
 import sys
 import json
+import random
 import rospy
 from std_msgs.msg import String, Empty
 
@@ -109,6 +110,13 @@ class GameLogicNode(object):
         self.max_row = 4
 
         # subs & pubs
+        self.rl_layout_pub = rospy.Publisher(
+            "/game/layout",
+            String,
+            queue_size=1,
+            latch=True
+        )
+        
         self.board_sub = rospy.Subscriber(
             "battleship/board_layout",
             String,
@@ -150,8 +158,22 @@ class GameLogicNode(object):
             self.rl_attack_cb,
             queue_size=10,
         )
-
+        
+        self.publish_rl_layout()
         rospy.loginfo("[game_logic_node] Iniciado. Esperando tablero y ataques...")
+    
+
+    def publish_rl_layout(self):
+        payload = {
+            "id": self.rl_layout["id"],
+            "board_size": 5,
+            "ship_two_cells": self.rl_layout["ship_two_cells"],
+            "ship_one_cells": self.rl_layout["ship_one_cells"],
+        }
+        msg = String()
+        msg.data = json.dumps(payload)
+        self.rl_layout_pub.publish(msg)
+
 
     def notify_rl_turn(self):
         rospy.loginfo("[game_logic_node] Turno para RL")
