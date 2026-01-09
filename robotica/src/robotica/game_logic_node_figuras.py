@@ -75,6 +75,7 @@ class GameLogicFigurasNode:
     def figuras_attack_cb(self, msg):
         try:
             data = json.loads(msg.data)
+            rospy.logwarn(f"[game_logic_figuras] Ataque P1_Figuras: {data}")
         except Exception:
             return
 
@@ -83,8 +84,8 @@ class GameLogicFigurasNode:
             return
 
         r, c = gestures
-        cell = (r, c)
-        name = cell_name(r, c)
+        cell = (c, r)
+        name = cell_name(c, r)
 
         # Repetido
         if cell in self.rl_hits:
