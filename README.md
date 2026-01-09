@@ -14,6 +14,9 @@ chmod +x src/refuerzo/src/refuerzo/rl_agent_node.py
 
 chmod +x src/vision_figuras/src/vision_figuras/figuras_node.py
 
+chmod +x src/robotica/src/robotica/game_logic_node_figuras.py
+
+
 (abrá mas)
 
 chmod +x src/refuerzo/setup_rl_env.sh
