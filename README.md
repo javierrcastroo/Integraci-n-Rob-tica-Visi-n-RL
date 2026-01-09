@@ -12,6 +12,8 @@ chmod +x src/robotica/src/robotica/move_to_pose_aruco.py
 
 chmod +x src/refuerzo/src/refuerzo/rl_agent_node.py
 
+chmod +x src/vision_figuras/src/vision_figuras/figuras_node.py
+
 (abrá mas)
 
 chmod +x src/refuerzo/setup_rl_env.sh
@@ -45,6 +47,14 @@ roslaunch robotica logic.launch
 
 roslaunch refuerzo rlModel.launch
 
+roslaunch vision_figuras figures.launch
+
+
+
+
+roslaunch robotica sistema2.launch
+
+roslaunch robotica logica_figuras.launch
 
 
 

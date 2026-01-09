@@ -1,0 +1,3 @@
+<launch>
+    <node pkg="robotica" type="game_logic_node_figuras.py" name="game_logic_node_figuras" output="screen" />
+</launch>

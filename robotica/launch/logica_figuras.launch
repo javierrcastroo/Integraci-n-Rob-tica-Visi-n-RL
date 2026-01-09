@@ -1,3 +1,9 @@
 <launch>
+    <!-- Carga la pose fija del marcador ArUco (poseAruco.yaml) y de la pose inicial (poses.yaml) -->
+    <rosparam file="$(find robotica)/config/poseAruco.yaml" command="load" />
+    <rosparam file="$(find robotica)/config/poses.yaml" command="load" />
+
+    <!-- Llamar al nodo de la lógica del juego y del movimiento del brazo robótico -->
     <node pkg="robotica" type="game_logic_node_figuras.py" name="game_logic_node_figuras" output="screen" />
+    <node pkg="robotica" type="robot_attack_node.py" name="robot_attack_node" output="screen" />
 </launch>

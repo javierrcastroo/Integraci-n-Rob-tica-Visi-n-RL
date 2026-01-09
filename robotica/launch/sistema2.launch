@@ -1,0 +1,15 @@
+<launch>
+    <include file="$(find launcher_robots_lab_robotica)/launch/robot_203.launch"/>
+    <include file="$(find vision_figuras)/launch/figures.launch"/>
+    <include file="$(find vision_tablero)/launch/board.launch"/>
+    <include file="$(find robotica)/launch/camera.launch">
+        <arg name="video_device" value="/dev/video0" />
+        <arg name="camera_ns"   value="camara_tablero" />
+    </include>
+
+    <include file="$(find robotica)/launch/camera.launch">
+        <arg name="video_device" value="/dev/video2" />
+        <arg name="camera_ns"   value="camara_gestos" />
+    </include>
+
+</launch>
