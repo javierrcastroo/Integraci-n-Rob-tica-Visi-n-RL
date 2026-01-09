@@ -47,7 +47,7 @@ def evaluate_board(layout):
             break
 
     if not errors:
-        return True, "Distribución correcta"
+        return True, "Distribucion correcta"
     # devolver solo errores únicos para no repetir el mismo texto
     uniq_errors = []
     for err in errors:
