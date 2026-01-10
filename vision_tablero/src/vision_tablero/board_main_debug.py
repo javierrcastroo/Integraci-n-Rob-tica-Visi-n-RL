@@ -347,7 +347,6 @@ class BoardMainDebug:
             "No muevas el tablero.",
         ]
 
-
     def _with_cartesian_coords(self, layout: dict) -> dict:
         board_size = layout.get("board_size") or board_tracker.BOARD_SQUARES
         origin = board_state.GLOBAL_ORIGIN
@@ -361,7 +360,33 @@ class BoardMainDebug:
         cell_centers = []
 
         if origin is not None and quad is not None and ratio_cm_per_pix is not None:
-            # reconstruye H_warp igual que en process_single_board
+            # --- 1) Ejes del tablero en píxeles (mismos que en board_processing) ---
+            q = np.array(quad, dtype=np.float32)
+            q = board_tracker.order_points(q)  # TL,TR,BR,BL
+            (tl_x, tl_y), (tr_x, tr_y), (br_x, br_y), (bl_x, bl_y) = q
+
+            vx1 = np.array([tr_x - tl_x, tr_y - tl_y], dtype=np.float32)
+            vx2 = np.array([br_x - bl_x, br_y - bl_y], dtype=np.float32)
+            vx = 0.5 * (vx1 + vx2)
+
+            vy1 = np.array([bl_x - tl_x, bl_y - tl_y], dtype=np.float32)
+            vy2 = np.array([br_x - tr_x, br_y - tr_y], dtype=np.float32)
+            vy = 0.5 * (vy1 + vy2)
+
+            norm_x = np.linalg.norm(vx)
+            norm_y = np.linalg.norm(vy)
+            if norm_x < 1e-6 or norm_y < 1e-6:
+                print("WARNING: vectores de ejes del tablero degenerados, usando fallback de imagen.")
+                ex = np.array([1.0, 0.0], dtype=np.float32)
+                ey = np.array([0.0, 1.0], dtype=np.float32)
+            else:
+                ex = vx / norm_x
+                ey = vy / norm_y
+                cross_z = ex[0] * ey[1] - ex[1] * ey[0]
+                if cross_z < 0:
+                    ey = -ey
+
+            # --- 2) Homografía para pasar de warp->imagen ---
             src = np.array(quad, dtype=np.float32)
             dst = np.array(
                 [[0, 0],
@@ -386,12 +411,19 @@ class BoardMainDebug:
                     ctr_warp = np.array([[[cxw, cyw]]], dtype=np.float32)
                     ctr_img = cv2.perspectiveTransform(ctr_warp, H_inv).reshape(-1, 2)[0]
 
-                    dx_px = float(ctr_img[0]) - float(ox)
-                    dy_px = float(ctr_img[1]) - float(oy)
+                    # vector desde ArUco a centro en coordenadas de imagen (px)
+                    v = np.array(
+                        [float(ctr_img[0]) - float(ox), float(ctr_img[1]) - float(oy)],
+                        dtype=np.float32,
+                    )
 
-                    # px -> cm -> m
-                    x_m = (dx_px * float(ratio_cm_per_pix)) / 100.0
-                    y_m = (dy_px * float(ratio_cm_per_pix)) / 100.0
+                    # Proyección de v sobre los ejes del tablero (px a lo largo de bordes)
+                    proj_x_px = float(np.dot(v, ex))
+                    proj_y_px = float(np.dot(v, ey))
+
+                    # px -> cm -> m usando ratio_cm_per_pix
+                    x_m = (proj_x_px * float(ratio_cm_per_pix)) / 100.0
+                    y_m = (proj_y_px * float(ratio_cm_per_pix)) / 100.0
 
                     cell_centers.append(
                         {
@@ -404,7 +436,6 @@ class BoardMainDebug:
                     )
         else:
             # Fallback: no podemos reconstruir XY reales en frame ArUco porque falta geometría.
-            # (típicamente: GLOBAL_ORIGIN no detectado, quad no disponible, o ratio_cm_per_pix None)
             print("WARNING:  No podemos reconstruir XY reales en frame ArUco porque falta geometría.")
 
         layout["cell_centers_aruco"] = cell_centers
@@ -576,7 +607,7 @@ class BoardMainDebug:
                 frame = cv2.undistort(frame, self.mtx, self.dist)
 
             # Actualiza GLOBAL_ORIGIN (ArUco) en coordenadas pixel
-            aruco_utils.update_global_origin_from_aruco(frame, aruco_id=2)
+            aruco_utils.update_global_origin_from_aruco(frame, aruco_id=3)
             print(f"[DBG] GLOBAL_ORIGIN(px) = {board_state.GLOBAL_ORIGIN}")
 
             vis, mask_b, mask_ship2, mask_ship1, mask_m, layouts = bp.process_board(
@@ -667,50 +698,47 @@ class BoardMainDebug:
                         cv2.putText(vis, txt1, (ax + 3, ay - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.32, (255, 255, 255), 1)
                         cv2.putText(vis, txt2, (ax + 3, ay + 2), cv2.FONT_HERSHEY_SIMPLEX, 0.32, (255, 255, 255), 1)
                         cv2.putText(vis, txt3, (ax + 3, ay + 12), cv2.FONT_HERSHEY_SIMPLEX, 0.32, (255, 255, 255), 1)
-                # =========================
-                # ESQUINAS DEL TABLERO: overlay ArUco -> esquinas
-                # =========================
-                quad = layouts[0].get("board_quad_pixel") if layouts else None
-                ratio = layouts[0].get("ratio_cm_per_pix") if layouts else None
+                        # =========================
+                        # ESQUINAS DEL TABLERO: overlay ArUco -> esquinas
+                        # =========================
+                        quad = layouts[0].get("board_quad_pixel") if layouts else None
+                        corners_xy = layouts[0].get("board_corners_aruco") if layouts else None
 
-                if quad is not None and len(quad) == 4 and board_state.GLOBAL_ORIGIN is not None and ratio is not None:
-                    gx, gy = map(int, board_state.GLOBAL_ORIGIN)
-                    ox, oy = board_state.GLOBAL_ORIGIN
+                        if (
+                                quad is not None
+                                and len(quad) == 4
+                                and corners_xy is not None
+                                and len(corners_xy) == 4
+                                and board_state.GLOBAL_ORIGIN is not None
+                        ):
+                            gx, gy = map(int, board_state.GLOBAL_ORIGIN)
 
-                    # Si tu quad ya viene ordenado por board_tracker.order_points, perfecto.
-                    # Si no, lo ordenamos para tener TL,TR,BR,BL estable:
-                    q = np.array(quad, dtype=np.float32)
-                    q = board_tracker.order_points(q)  # TL,TR,BR,BL
+                            q = np.array(quad, dtype=np.float32)
+                            q = board_tracker.order_points(q)  # TL,TR,BR,BL
 
-                    corner_names = ["TL", "TR", "BR", "BL"]
+                            corner_names = ["TL", "TR", "BR", "BL"]
 
-                    for name, (px, py) in zip(corner_names, q):
-                        px_f, py_f = float(px), float(py)
+                            for name, (px, py), (x_m, y_m) in zip(corner_names, q, corners_xy):
+                                cx, cy = int(px), int(py)
 
-                        # offset px desde el ArUco
-                        dx_px = px_f - float(ox)
-                        dy_px = py_f - float(oy)
+                                # punto esquina
+                                cv2.circle(vis, (cx, cy), 6, (255, 255, 255), 2)
 
-                        # a metros (xy_aruco)
-                        x_m = (dx_px * float(ratio)) / 100.0
-                        y_m = (dy_px * float(ratio)) / 100.0
+                                # vector ArUco -> esquina (solo visual)
+                                cv2.line(vis, (gx, gy), (cx, cy), (200, 200, 200), 1)
 
-                        cx, cy = int(px_f), int(py_f)
+                                # texto (3 líneas compactas como casillas)
+                                txt1 = f"{name}"
+                                txt2 = f"x{(x_m * 100):.2f}"
+                                txt3 = f"y{(y_m * 100):.2f}"
 
-                        # punto esquina
-                        cv2.circle(vis, (cx, cy), 6, (255, 255, 255), 2)
+                                cv2.putText(vis, txt1, (cx + 3, cy - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.32,
+                                            (255, 255, 255), 1)
+                                cv2.putText(vis, txt2, (cx + 3, cy + 2), cv2.FONT_HERSHEY_SIMPLEX, 0.32,
+                                            (255, 255, 255), 1)
+                                cv2.putText(vis, txt3, (cx + 3, cy + 12), cv2.FONT_HERSHEY_SIMPLEX, 0.32,
+                                            (255, 255, 255), 1)
 
-                        # vector ArUco -> esquina
-                        cv2.line(vis, (gx, gy), (cx, cy), (200, 200, 200), 1)
-
-                        # texto (3 líneas compactas como casillas)
-                        txt1 = f"{name}"
-                        txt2 = f"x{(x_m * 100):.2f}"
-                        txt3 = f"y{(y_m * 100):.2f}"
-
-                        cv2.putText(vis, txt1, (cx + 3, cy - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.32, (255, 255, 255), 1)
-                        cv2.putText(vis, txt2, (cx + 3, cy + 2), cv2.FONT_HERSHEY_SIMPLEX, 0.32, (255, 255, 255), 1)
-                        cv2.putText(vis, txt3, (cx + 3, cy + 12), cv2.FONT_HERSHEY_SIMPLEX, 0.32, (255, 255, 255), 1)
             except Exception as exc:
                 print("[WARN] overlay debug failed:", exc)
 

@@ -41,10 +41,11 @@ def process_board(frame, board_state, cam_mtx=None, dist=None, warp_size=500, ce
     layouts = []
 
     ratio_cm_per_pix = None
+    ex = ey = None
+
     if boards_found:
         ratio_cm_per_pix = boards_found[0].get("ratio")
         quad = boards_found[0]["quad"]
-
 
         print(f"[DBG] ratio(from boards_found[0]['ratio']) = {ratio_cm_per_pix}")
         print(f"[DBG] quad(px) = {quad}")
@@ -62,18 +63,32 @@ def process_board(frame, board_state, cam_mtx=None, dist=None, warp_size=500, ce
         print(f"[DBG] width_px≈{width_px:.2f} | board_cm={board_cm:.2f}")
         print(f"[DBG] derived cm/px≈{cm_per_px_est:.5f} | px/cm≈{px_per_cm_est:.2f}")
 
+        ex, ey = _compute_board_axes_from_quad(quad)
+        if ex is None or ey is None or ratio_cm_per_pix is None:
+            print("[WARN] No se pudieron calcular ejes del tablero o ratio_cm_per_pix es None; "
+                  "las coordenadas en frame tablero no estarán disponibles.")
 
         board_state["last_quad"] = quad
         board_state["miss"] = 0
+
         ship_two_mask_show, ship_one_mask_show, layout_info = process_single_board(
-            vis_all, frame, quad, board_state, warp_size
+            vis_all,
+            frame,
+            quad,
+            board_state,
+            warp_size,
+            ratio_cm_per_pix,
+            ex,
+            ey,
         )
         if layout_info is not None:
             layout_info["ammo_global_detections"] = _build_global_detections(
-                ammo_pts, ratio_cm_per_pix
+                ammo_pts, ratio_cm_per_pix, ex, ey
             )
             layout_info["ratio_cm_per_pix"] = ratio_cm_per_pix
-            layout_info["board_corners_aruco"] = _board_quad_pixel_to_corners_aruco(quad, ratio_cm_per_pix)
+            layout_info["board_corners_aruco"] = _board_quad_pixel_to_corners_aruco(
+                quad, ratio_cm_per_pix, ex, ey
+            )
             layouts.append(layout_info)
     else:
         fallback_or_decay(board_state, vis_all)
@@ -87,7 +102,14 @@ def process_board(frame, board_state, cam_mtx=None, dist=None, warp_size=500, ce
         layouts,
     )
 
-def _build_global_detections(ammo_pts, ratio_cm_per_pix):
+def _build_global_detections(ammo_pts, ratio_cm_per_pix, ex, ey):
+    """
+    Munición GLOBAL (fuera de tablero, frame completo).
+    Calcula:
+    - pixel
+    - offset_from_origin en píxeles (debug)
+    - xy_aruco en metros, proyectando sobre los ejes del tablero (ex, ey).
+    """
     origin = board_state.GLOBAL_ORIGIN
     if origin is None:
         return []
@@ -101,41 +123,100 @@ def _build_global_detections(ammo_pts, ratio_cm_per_pix):
             "pixel": (int(cx), int(cy)),
             "offset_from_origin": (offset_x, offset_y),
         }
-        if ratio_cm_per_pix is not None:
-            entry["xy_aruco"] = (
-                (offset_x * ratio_cm_per_pix) / 100.0,
-                (offset_y * ratio_cm_per_pix) / 100.0,
-            )
+        if ratio_cm_per_pix is not None and ex is not None and ey is not None:
+            v = np.array([offset_x, offset_y], dtype=np.float32)
+            x_m, y_m = _project_vector_to_board_xy(v, ex, ey, ratio_cm_per_pix)
+            entry["xy_aruco"] = (x_m, y_m)
         detections.append(entry)
     return detections
 
-def _board_quad_pixel_to_corners_aruco(quad, ratio_cm_per_pix):
+def _compute_board_axes_from_quad(quad):
+    """
+    A partir de un quad en píxeles (4 puntos), calcula dos vectores unitarios:
+    - ex_px: eje X del tablero (a lo largo del lado 'horizontal' del tablero)
+    - ey_px: eje Y del tablero (a lo largo del lado 'vertical' del tablero)
+
+    Ambos están expresados en píxeles (frame de imagen), pero definen
+    el frame del tablero (invariante a la rotación de la cámara).
+    """
+    if quad is None or len(quad) != 4:
+        return None, None
+
+    q = np.array(quad, dtype=np.float32)
+    q = board_tracker.order_points(q)  # TL, TR, BR, BL
+    (tl_x, tl_y), (tr_x, tr_y), (br_x, br_y), (bl_x, bl_y) = q
+
+    # Vectores medios de lados opuestos
+    vx1 = np.array([tr_x - tl_x, tr_y - tl_y], dtype=np.float32)
+    vx2 = np.array([br_x - bl_x, br_y - bl_y], dtype=np.float32)
+    vx = 0.5 * (vx1 + vx2)
+
+    vy1 = np.array([bl_x - tl_x, bl_y - tl_y], dtype=np.float32)
+    vy2 = np.array([br_x - tr_x, br_y - tr_y], dtype=np.float32)
+    vy = 0.5 * (vy1 + vy2)
+
+    norm_x = np.linalg.norm(vx)
+    norm_y = np.linalg.norm(vy)
+    if norm_x < 1e-6 or norm_y < 1e-6:
+        return None, None
+
+    ex = vx / norm_x
+    ey = vy / norm_y
+
+    # Aseguramos sistema de coordenadas "mano derecha"
+    cross_z = ex[0] * ey[1] - ex[1] * ey[0]
+    if cross_z < 0:
+        ey = -ey
+
+    return ex, ey
+
+
+def _project_vector_to_board_xy(v, ex, ey, ratio_cm_per_pix):
+    """
+    Proyecta el vector v (en píxeles, frame de imagen) sobre los ejes del tablero (ex,ey)
+    y lo convierte a metros usando ratio_cm_per_pix (cm/px).
+    """
+    proj_x_px = float(np.dot(v, ex))
+    proj_y_px = float(np.dot(v, ey))
+    x_m = (proj_x_px * float(ratio_cm_per_pix)) / 100.0
+    y_m = (proj_y_px * float(ratio_cm_per_pix)) / 100.0
+    return x_m, y_m
+
+
+
+def _board_quad_pixel_to_corners_aruco(quad, ratio_cm_per_pix, ex, ey):
     """
     Convierte las 4 esquinas del tablero (quad en píxeles) a coordenadas XY en metros
-    relativas al origen GLOBAL_ORIGIN (ArUco), usando ratio_cm_per_pix.
+    relativas al origen GLOBAL_ORIGIN (ArUco), usando ratio_cm_per_pix y
+    proyectando sobre los ejes del tablero (ex, ey).
     """
     origin = board_state.GLOBAL_ORIGIN
     if origin is None or quad is None or ratio_cm_per_pix is None:
         return []
 
+    if ex is None or ey is None:
+        return []
+
     ox, oy = origin
     corners_aruco = []
-    for (px, py) in quad:
-        offset_x = float(px) - float(ox)
-        offset_y = float(py) - float(oy)
-        x_m = (offset_x * float(ratio_cm_per_pix)) / 100.0
-        y_m = (offset_y * float(ratio_cm_per_pix)) / 100.0
+
+    q = np.array(quad, dtype=np.float32)
+    q = board_tracker.order_points(q)  # TL,TR,BR,BL
+
+    for (px, py) in q:
+        v = np.array([float(px) - float(ox), float(py) - float(oy)], dtype=np.float32)
+        x_m, y_m = _project_vector_to_board_xy(v, ex, ey, ratio_cm_per_pix)
         corners_aruco.append((x_m, y_m))
 
     return corners_aruco
 
 
-def process_single_board(vis_img, frame_bgr, quad, slot, warp_size=500):
+def process_single_board(vis_img, frame_bgr, quad, slot, warp_size=500,
+                         ratio_cm_per_pix=None, ex=None, ey=None):
     """
     Procesa un tablero individual detectando centros de barcos de dos y una casilla
-    con el mismo pipeline basado en blobs que teníamos antes: calibras con un ROI,
-    buscamos contornos del color elegido, calculamos su centroide y lo traducimos
-    a una casilla (A1, B2, ...).
+    y munición sobre el tablero. Todas las distancias se calculan en el frame
+    del tablero usando los ejes (ex, ey).
     """
 
     hsv = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2HSV)
@@ -170,9 +251,10 @@ def process_single_board(vis_img, frame_bgr, quad, slot, warp_size=500):
         dy_px = float(ctr_img[1]) - float(oy)
         print(f"[DBG] aruco->cell(0,0) center offset px = ({dx_px:.2f}, {dy_px:.2f})")
 
-        # convierte a cm usando el ratio ya calculado
-        # (si no lo tienes en este scope, pásalo o imprime solo px)
-
+        if ratio_cm_per_pix is not None and ex is not None and ey is not None:
+            v0 = np.array([dx_px, dy_px], dtype=np.float32)
+            x0_m, y0_m = _project_vector_to_board_xy(v0, ex, ey, ratio_cm_per_pix)
+            print(f"[DBG] aruco->cell(0,0) center board frame (cm) = ({x0_m*100:.2f}, {y0_m*100:.2f})")
 
     warp_img = cv2.warpPerspective(frame_bgr, H_warp, (warp_size, warp_size))
 
@@ -221,9 +303,9 @@ def process_single_board(vis_img, frame_bgr, quad, slot, warp_size=500):
     slot["ship_one_cells"] = sorted(set(ship_one_cells_raw))
     slot["ammo_cells"] = sorted(set(ammo_cells_raw))
 
-    ship_two_detections = _build_detection_entries(ship_two_pairs)
-    ship_one_detections = _build_detection_entries(ship_one_pairs)
-    ammo_detections = _build_detection_entries(ammo_pairs)
+    ship_two_detections = _build_detection_entries(ship_two_pairs, ex, ey, ratio_cm_per_pix)
+    ship_one_detections = _build_detection_entries(ship_one_pairs, ex, ey, ratio_cm_per_pix)
+    ammo_detections = _build_detection_entries(ammo_pairs, ex, ey, ratio_cm_per_pix)
 
     display_entries = []
     for idx, label in enumerate(ship_two_labels, 1):
@@ -255,6 +337,7 @@ def process_single_board(vis_img, frame_bgr, quad, slot, warp_size=500):
     cv2.imshow(f"{slot['name']} aplanado", warp_img)
 
     return ship_two_mask, ship_one_mask, layout_info
+
 
 
 def fallback_or_decay(slot, vis_img):
@@ -299,26 +382,48 @@ def _map_points_to_cells(points, H_warp, warp_size):
     return cells, labels, point_cell_pairs
 
 
-def _build_detection_entries(point_cell_pairs):
+def _build_detection_entries(point_cell_pairs, ex, ey, ratio_cm_per_pix):
+    """
+    Detecciones asociadas a celdas (barcos y munición sobre el tablero).
+
+    Para cada detección:
+    - cell: (col,row)
+    - pixel: (x,y) en imagen
+    - offset_from_origin: vector en píxeles desde el ArUco (debug)
+    - xy_aruco: coordenadas en metros en el frame del tablero
+    """
     entries = []
     origin = board_state.GLOBAL_ORIGIN
+
     for pair in point_cell_pairs:
         cell = pair.get("cell")
         pixel = pair.get("pixel")
         if cell is None or pixel is None:
             continue
+
         offset = None
+        xy_aruco = None
+
         if origin is not None:
             ox, oy = origin
             px, py = pixel
             offset = (px - ox, py - oy)
-        entries.append(
-            {
-                "cell": cell,
-                "pixel": pixel,
-                "offset_from_origin": offset,
-            }
-        )
+
+            if ex is not None and ey is not None and ratio_cm_per_pix is not None:
+                v = np.array([float(offset[0]), float(offset[1])], dtype=np.float32)
+                x_m, y_m = _project_vector_to_board_xy(v, ex, ey, ratio_cm_per_pix)
+                xy_aruco = (x_m, y_m)
+
+        entry = {
+            "cell": cell,
+            "pixel": pixel,
+            "offset_from_origin": offset,
+        }
+        if xy_aruco is not None:
+            entry["xy_aruco"] = xy_aruco
+
+        entries.append(entry)
+
     return entries
 
 
