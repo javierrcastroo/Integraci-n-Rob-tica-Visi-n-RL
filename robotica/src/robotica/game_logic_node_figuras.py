@@ -4,30 +4,51 @@ import json
 from std_msgs.msg import String, Empty
 
 
-def cell_name(r, c):
-    return f"{chr(ord('A') + r)}{c + 1}"
+def cell_name(col, row):
+    return f"{chr(ord('A') + col)}{row + 1}"
+
+def _cells_from_layout(layout):
+    raw_two = layout.get("ship_two_cells", [])
+    raw_one = layout.get("ship_one_cells", [])
+
+    ship_two_cells = [(c[0], c[1]) for c in raw_two]
+    ship_one_cells = [(c[0], c[1]) for c in raw_one]
+
+    return ship_two_cells, ship_one_cells
 
 
 class GameLogicFigurasNode:
     def __init__(self):
-        # Tablero DEFENDIDO por RL (ataca P1_Figuras)
-        self.rl_ships = {
-            (1, 1), (1, 2),
-            (3, 3)
-        }
+        # Tablero de RL (ataca el usuario)
+        self.rl_ships = set()
         self.rl_hits = set()
+        self.board_valid = False
 
-        # Tablero DEFENDIDO por P1_Figuras (ataca RL)
-        self.figuras_ships = {
-            (0, 0), (0, 1),
-            (2, 0), (2, 2), (2, 4)
+        # Tablero de usuario (ataca RL)
+        self.figuras_layout = {
+            "id": "FIGURAS_1",
+            "board_size": 5,
+            "ship_two_cells": [
+                [0, 0], [0, 1]
+            ],
+            "ship_one_cells": [
+                [2, 0], [2, 2], [2, 4]
+            ],
         }
+        two, one = _cells_from_layout(self.figuras_layout)
+        self.figuras_ships = set(two) | set(one)
         self.figuras_hits = set()
 
         self.max_row = 4
         self.max_col = 4
 
-
+        self.figuras_layout_pub = rospy.Publisher(
+            "/game/layout",
+            String,
+            queue_size=1,
+            latch=True
+        )
+        
         self.result_pub = rospy.Publisher(
             "battleship/attack_result", String, queue_size=10
         )
@@ -40,6 +61,14 @@ class GameLogicFigurasNode:
         )
         self.rl_state_pub = rospy.Publisher(
             "/game/state", String, queue_size=10
+        )
+        
+        # Layout del tablero
+        self.board_sub = rospy.Subscriber(
+            "battleship/board_layout",
+            String,
+            self.board_cb,
+            queue_size=10,
         )
 
         # Ataques de P1_Figuras
@@ -57,9 +86,50 @@ class GameLogicFigurasNode:
             self.rl_attack_cb,
             queue_size=10,
         )
-
+        
+        self.publish_figuras_layout()
         rospy.loginfo("[game_logic_figuras] Nodo iniciado (P1_Figuras vs RL)")
 
+    def publish_figuras_layout(self):
+        payload = {
+            "id": self.figuras_layout["id"],
+            "board_size": self.figuras_layout["board_size"],
+            "ship_two_cells": self.figuras_layout["ship_two_cells"],
+            "ship_one_cells": self.figuras_layout["ship_one_cells"],
+        }
+    
+        msg = String()
+        msg.data = json.dumps(payload)
+        self.figuras_layout_pub.publish(msg)
+    
+        rospy.loginfo("[game_logic_figuras] Layout de Figuras publicado")
+
+
+    # CALLBACK LAYOUT
+    def board_cb(self, msg):
+        try:
+            data = json.loads(msg.data)
+        except Exception as e:
+            rospy.logwarn(f"[game_logic_figuras] Error parseando layout: {e}")
+            return
+
+        boards = data.get("boards", [])
+        if not boards:
+            rospy.logwarn("[game_logic_figuras] Layout sin boards")
+            return
+
+        layout = boards[0]
+
+        ship_two, ship_one = _cells_from_layout(layout)
+
+        self.rl_ships = set(ship_two) | set(ship_one)
+        self.rl_hits = set()
+        self.board_valid = True
+
+        rospy.loginfo(
+            f"[game_logic_figuras] Layout RL cargado con "
+            f"{len(self.rl_ships)} celdas"
+        )
 
     # TURNO RL
     def notify_rl_turn(self):
@@ -78,14 +148,23 @@ class GameLogicFigurasNode:
             rospy.logwarn(f"[game_logic_figuras] Ataque P1_Figuras: {data}")
         except Exception:
             return
+            
+        if not self.board_valid:
+            rospy.logwarn("[game_logic_figuras] Tablero RL no cargado")
+            return
 
         gestures = data.get("gestures", [])
         if len(gestures) != 2:
             return
 
-        r, c = gestures
-        cell = (c, r)
-        name = cell_name(c, r)
+        col, row = gestures
+        cell = (col, row)
+        name = cell_name(col, row)
+
+        if not (0 <= col <= self.max_col and 0 <= row <= self.max_row):
+            self.publish_result("out_of_bounds", (col, row), "Ataque fuera del tablero detectado")
+            return
+
 
         # Repetido
         if cell in self.rl_hits:
@@ -117,13 +196,13 @@ class GameLogicFigurasNode:
             return
 
         try:
-            r = ord(coord[0]) - ord("A")
-            c = int(coord[1:]) - 1
+            col = ord(coord[0]) - ord("A")
+            row = int(coord[1:]) - 1
         except Exception:
             return
 
-        cell = (r, c)
-        name = cell_name(r, c)
+        cell = (col, row)
+        name = cell_name(col, row)
 
         # Repetido
         if cell in self.figuras_hits:
@@ -158,9 +237,9 @@ class GameLogicFigurasNode:
             "status": "OK",
             "result": result,
             "cell": {
-                "row": cell[0],
-                "col": cell[1],
-                "name": cell_name(cell[0], cell[1]),
+                "row": cell[1],
+                "col": cell[0],
+                "name": cell_name(cell[0], cell[1]),    
             },
             "message": message,
         }
