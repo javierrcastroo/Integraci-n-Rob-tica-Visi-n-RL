@@ -698,46 +698,46 @@ class BoardMainDebug:
                         cv2.putText(vis, txt1, (ax + 3, ay - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.32, (255, 255, 255), 1)
                         cv2.putText(vis, txt2, (ax + 3, ay + 2), cv2.FONT_HERSHEY_SIMPLEX, 0.32, (255, 255, 255), 1)
                         cv2.putText(vis, txt3, (ax + 3, ay + 12), cv2.FONT_HERSHEY_SIMPLEX, 0.32, (255, 255, 255), 1)
-                        # =========================
-                        # ESQUINAS DEL TABLERO: overlay ArUco -> esquinas
-                        # =========================
-                        quad = layouts[0].get("board_quad_pixel") if layouts else None
-                        corners_xy = layouts[0].get("board_corners_aruco") if layouts else None
+                    # =========================
+                    # ESQUINAS DEL TABLERO: overlay ArUco -> esquinas
+                    # =========================
+                    quad = layouts[0].get("board_quad_pixel") if layouts else None
+                    corners_xy = layouts[0].get("board_corners_aruco") if layouts else None
 
-                        if (
-                                quad is not None
-                                and len(quad) == 4
-                                and corners_xy is not None
-                                and len(corners_xy) == 4
-                                and board_state.GLOBAL_ORIGIN is not None
-                        ):
-                            gx, gy = map(int, board_state.GLOBAL_ORIGIN)
+                    if (
+                            quad is not None
+                            and len(quad) == 4
+                            and corners_xy is not None
+                            and len(corners_xy) == 4
+                            and board_state.GLOBAL_ORIGIN is not None
+                    ):
+                        gx, gy = map(int, board_state.GLOBAL_ORIGIN)
 
-                            q = np.array(quad, dtype=np.float32)
-                            q = board_tracker.order_points(q)  # TL,TR,BR,BL
+                        q = np.array(quad, dtype=np.float32)
+                        q = board_tracker.order_points(q)  # TL,TR,BR,BL
 
-                            corner_names = ["TL", "TR", "BR", "BL"]
+                        corner_names = ["TL", "TR", "BR", "BL"]
 
-                            for name, (px, py), (x_m, y_m) in zip(corner_names, q, corners_xy):
-                                cx, cy = int(px), int(py)
+                        for name, (px, py), (x_m, y_m) in zip(corner_names, q, corners_xy):
+                            cx, cy = int(px), int(py)
 
-                                # punto esquina
-                                cv2.circle(vis, (cx, cy), 6, (255, 255, 255), 2)
+                            # punto esquina
+                            cv2.circle(vis, (cx, cy), 6, (255, 255, 255), 2)
 
-                                # vector ArUco -> esquina (solo visual)
-                                cv2.line(vis, (gx, gy), (cx, cy), (200, 200, 200), 1)
+                            # vector ArUco -> esquina (solo visual)
+                            cv2.line(vis, (gx, gy), (cx, cy), (200, 200, 200), 1)
 
-                                # texto (3 líneas compactas como casillas)
-                                txt1 = f"{name}"
-                                txt2 = f"x{(x_m * 100):.2f}"
-                                txt3 = f"y{(y_m * 100):.2f}"
+                            # texto (3 líneas compactas como casillas)
+                            txt1 = f"{name}"
+                            txt2 = f"x{(x_m * 100):.2f}"
+                            txt3 = f"y{(y_m * 100):.2f}"
 
-                                cv2.putText(vis, txt1, (cx + 3, cy - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.32,
-                                            (255, 255, 255), 1)
-                                cv2.putText(vis, txt2, (cx + 3, cy + 2), cv2.FONT_HERSHEY_SIMPLEX, 0.32,
-                                            (255, 255, 255), 1)
-                                cv2.putText(vis, txt3, (cx + 3, cy + 12), cv2.FONT_HERSHEY_SIMPLEX, 0.32,
-                                            (255, 255, 255), 1)
+                            cv2.putText(vis, txt1, (cx + 3, cy - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.32,
+                                        (255, 255, 255), 1)
+                            cv2.putText(vis, txt2, (cx + 3, cy + 2), cv2.FONT_HERSHEY_SIMPLEX, 0.32,
+                                        (255, 255, 255), 1)
+                            cv2.putText(vis, txt3, (cx + 3, cy + 12), cv2.FONT_HERSHEY_SIMPLEX, 0.32,
+                                        (255, 255, 255), 1)
 
             except Exception as exc:
                 print("[WARN] overlay debug failed:", exc)
