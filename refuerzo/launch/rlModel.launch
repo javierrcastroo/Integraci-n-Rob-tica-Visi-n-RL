@@ -1,0 +1,4 @@
+<launch>
+    <node pkg="refuerzo" type="rl_agent_node.py" name="rl_agent_node" output="screen" />
+</launch>
+

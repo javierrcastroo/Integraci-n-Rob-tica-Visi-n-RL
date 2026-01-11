@@ -1,0 +1,11 @@
+<launch>
+    <include file="$(find robotica)/launch/camera.launch">
+        <arg name="video_device" value="/dev/video0" />
+        <arg name="camera_ns"   value="camara_tablero" />
+    </include>
+
+    <include file="$(find robotica)/launch/camera.launch">
+        <arg name="video_device" value="/dev/video2" />
+        <arg name="camera_ns"   value="camara_gestos" />
+    </include>
+</launch>

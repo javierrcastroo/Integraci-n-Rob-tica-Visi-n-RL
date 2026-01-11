@@ -1,0 +1,11 @@
+<launch>
+
+    <!-- Nodo de movimiento automático -->
+    <node
+        pkg="robotica"
+        type="control_robot_debug.py"
+        name="control_robot_debug"
+        output="screen"
+    />
+
+</launch>

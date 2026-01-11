@@ -1,0 +1,3 @@
+<launch>
+    <node pkg="vision_tablero" type="board_main.py" name="board_main" output="screen" />
+</launch>

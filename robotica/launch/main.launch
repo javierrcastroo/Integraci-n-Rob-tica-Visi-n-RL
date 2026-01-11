@@ -1,0 +1,19 @@
+<launch>
+
+    <!-- ====================================== -->
+    <!--            LANZAR CÁMARAS              -->
+    <!-- ====================================== -->
+    <include file="$(find robotica)/launch/sistema.launch" />
+
+
+    <!-- ====================================== -->
+    <!--       NODO DE RECONOCIMIENTO DE GESTOS -->
+    <!-- ====================================== -->
+    <include file="$(find vision_gestos)/launch/gesture.launch" />
+
+    <!-- ====================================== -->
+    <!--       NODO DE DETECCIÓN DEL TABLERO    -->
+    <!-- ====================================== -->
+    <include file="$(find vision_tablero)/launch/board.launch" />
+
+</launch>
