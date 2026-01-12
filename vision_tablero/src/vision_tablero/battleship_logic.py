@@ -13,7 +13,7 @@ def evaluate_board(layout):
 
     # comprobar cantidades
     if len(ship_two_cells) != 2:
-        errors.append("El barco de 2 casillas no está completo")
+        errors.append("El barco de 2 casillas no esta completo")
     if len(ship_one_cells) != 3:
         errors.append("Tiene que haber exactamente 3 barcos de 1 casilla")
 

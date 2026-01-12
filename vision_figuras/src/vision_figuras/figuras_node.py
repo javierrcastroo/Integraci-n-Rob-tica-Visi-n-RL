@@ -173,6 +173,12 @@ def main():
                 rospy.loginfo(f"DISPARANDO A: {siguiente_ataque} | Restantes en cola: {len(cola_ataques)}")
             else:
                 rospy.logwarn("¡La cola está vacía! Usa C o F para buscar objetivos primero.")
+                
+        elif key == ord('r'):
+            # --- VACIAR COLA ---
+            cola_ataques = [] 
+            rospy.loginfo(f"Cola vaciada")
+           
 
         rate.sleep()
     

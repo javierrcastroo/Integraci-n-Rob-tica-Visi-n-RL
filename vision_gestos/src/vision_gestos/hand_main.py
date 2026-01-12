@@ -223,7 +223,7 @@ def main():
                 if resolved_label == TRIGGER_GESTURE:
                     set_state("CAPTURA", ["Sistema activo: muestra el primer gesto."])
                 else:
-                    set_status(["Sigue en standby, haz 'demond' para comenzar."])
+                    set_status(["Sigue en standby, haz '5dedos' para comenzar."])
 
             elif capture_state == "CAPTURA":
                 if resolved_label == "????" or resolved_label in CONTROL_GESTURES:
@@ -266,7 +266,7 @@ def main():
                     pending_candidate = None
                     set_state(
                         "STANDBY",
-                        ["Standby: haz 'demond' para activar un nuevo registro."],
+                        ["Standby: haz '5dedos' para activar un nuevo registro."],
                     )
                 else:
                     set_status(["Secuencia lista. Usa 'cool' para imprimirla."])
