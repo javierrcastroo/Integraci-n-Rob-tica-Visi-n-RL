@@ -118,7 +118,7 @@ class RobotAttackExecutor:
         return qx, qy, qz, qw
 
     def _rotate_aruco_xy(self, x_aruco: float, y_aruco: float) -> Tuple[float, float]:
-        angle_rad = math.radians(135.0)
+        angle_rad = math.radians(137.5)
         c = math.cos(angle_rad)
         s = math.sin(angle_rad)
 

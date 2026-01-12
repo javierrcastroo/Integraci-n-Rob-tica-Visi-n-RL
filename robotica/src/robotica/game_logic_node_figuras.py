@@ -63,6 +63,12 @@ class GameLogicFigurasNode:
             "/game/state", String, queue_size=10
         )
         
+        self.board_request_pub = rospy.Publisher(
+            "battleship/board_request",
+            String,
+            queue_size=10,
+        )
+        
         # Layout del tablero
         self.board_sub = rospy.Subscriber(
             "battleship/board_layout",
@@ -104,6 +110,12 @@ class GameLogicFigurasNode:
     
         rospy.loginfo("[game_logic_figuras] Layout de Figuras publicado")
 
+    def request_board_layout(self, reason):
+        msg = String()
+        msg.data = reason
+        self.board_request_pub.publish(msg)
+        rospy.loginfo(f"[game_logic_node] Petición de layout enviada: {reason}")
+        
 
     # CALLBACK LAYOUT
     def board_cb(self, msg):
@@ -239,9 +251,10 @@ class GameLogicFigurasNode:
             "cell": {
                 "row": cell[1],
                 "col": cell[0],
-                "name": cell_name(cell[0], cell[1]),    
+                "name": cell_name(cell[0], cell[1]),
             },
             "message": message,
+            "board_valid": self.board_valid,   # <<< AÑADIR ESTO
         }
         msg = String()
         msg.data = json.dumps(payload)
