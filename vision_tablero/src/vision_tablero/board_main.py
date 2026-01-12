@@ -824,7 +824,7 @@ class BoardMainNode:
             for layout in layouts:
                 ok, msg = battleship_logic.evaluate_board(layout)
                 validation_map[layout.get("name", "?")] = (ok, msg)
-                print(f"[{layout.get('name','?')}] {msg}")
+                #print(f"[{layout.get('name','?')}] {msg}")
 
             if self.board_state["name"] in validation_map and self.board_state["last_quad"] is not None:
                 ok, msg = validation_map[self.board_state["name"]]

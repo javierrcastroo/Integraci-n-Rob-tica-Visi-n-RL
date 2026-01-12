@@ -43,7 +43,7 @@ class ControlRobot:
         
         self.techo_name = "techo"
         self.techo_size = (2.0, 2.0, 0.05)   # (x, y, z)
-        self.techo_center_z = 0.55
+        self.techo_center_z = 0.6
         self.añadir_techo()
         
         self.wall_name = "wall_y_0_6"

@@ -47,8 +47,8 @@ def process_board(frame, board_state, cam_mtx=None, dist=None, warp_size=500, ce
         ratio_cm_per_pix = boards_found[0].get("ratio")
         quad = boards_found[0]["quad"]
 
-        print(f"[DBG] ratio(from boards_found[0]['ratio']) = {ratio_cm_per_pix}")
-        print(f"[DBG] quad(px) = {quad}")
+        #print(f"[DBG] ratio(from boards_found[0]['ratio']) = {ratio_cm_per_pix}")
+        #print(f"[DBG] quad(px) = {quad}")
 
         # ancho en px (promedio borde superior e inferior)
         (x0, y0), (x1, y1), (x2, y2), (x3, y3) = quad
@@ -60,8 +60,8 @@ def process_board(frame, board_state, cam_mtx=None, dist=None, warp_size=500, ce
         cm_per_px_est = board_cm / width_px
         px_per_cm_est = width_px / board_cm
 
-        print(f"[DBG] width_px≈{width_px:.2f} | board_cm={board_cm:.2f}")
-        print(f"[DBG] derived cm/px≈{cm_per_px_est:.5f} | px/cm≈{px_per_cm_est:.2f}")
+        #print(f"[DBG] width_px≈{width_px:.2f} | board_cm={board_cm:.2f}")
+        #print(f"[DBG] derived cm/px≈{cm_per_px_est:.5f} | px/cm≈{px_per_cm_est:.2f}")
 
         ex, ey = _compute_board_axes_from_quad(quad)
         if ex is None or ey is None or ratio_cm_per_pix is None:
@@ -243,18 +243,18 @@ def process_single_board(vis_img, frame_bgr, quad, slot, warp_size=500,
 
     ctr_warp = np.array([[[cxw, cyw]]], dtype=np.float32)
     ctr_img = cv2.perspectiveTransform(ctr_warp, H_inv).reshape(-1, 2)[0]
-    print(f"[DBG] cell(0,0) center in image px = ({ctr_img[0]:.2f}, {ctr_img[1]:.2f})")
+    #print(f"[DBG] cell(0,0) center in image px = ({ctr_img[0]:.2f}, {ctr_img[1]:.2f})")
 
     if board_state.GLOBAL_ORIGIN is not None:
         ox, oy = board_state.GLOBAL_ORIGIN
         dx_px = float(ctr_img[0]) - float(ox)
         dy_px = float(ctr_img[1]) - float(oy)
-        print(f"[DBG] aruco->cell(0,0) center offset px = ({dx_px:.2f}, {dy_px:.2f})")
+        #print(f"[DBG] aruco->cell(0,0) center offset px = ({dx_px:.2f}, {dy_px:.2f})")
 
         if ratio_cm_per_pix is not None and ex is not None and ey is not None:
             v0 = np.array([dx_px, dy_px], dtype=np.float32)
             x0_m, y0_m = _project_vector_to_board_xy(v0, ex, ey, ratio_cm_per_pix)
-            print(f"[DBG] aruco->cell(0,0) center board frame (cm) = ({x0_m*100:.2f}, {y0_m*100:.2f})")
+            #print(f"[DBG] aruco->cell(0,0) center board frame (cm) = ({x0_m*100:.2f}, {y0_m*100:.2f})")
 
     warp_img = cv2.warpPerspective(frame_bgr, H_warp, (warp_size, warp_size))
 
@@ -330,9 +330,9 @@ def process_single_board(vis_img, frame_bgr, quad, slot, warp_size=500,
         "warp_size_px": warp_size,
     }
 
-    if display_entries:
-        for tag, label in display_entries:
-            print(f"[{slot['name']}] {tag} -> {label}")
+    #if display_entries:
+    #    for tag, label in display_entries:
+    #        print(f"[{slot['name']}] {tag} -> {label}")
 
     cv2.imshow(f"{slot['name']} aplanado", warp_img)
 

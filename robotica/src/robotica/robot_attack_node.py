@@ -39,7 +39,7 @@ class RobotAttackExecutor:
 
         # Tamaños y alturas
         self.board_surface_z = float(rospy.get_param("~board_surface_z", 0.0))
-        self.ship_box_size = float(rospy.get_param("~ship_box_size", 0.025))
+        self.ship_box_size = float(rospy.get_param("~ship_box_size", 0.02))
         self.ammo_box_size = float(rospy.get_param("~ammo_box_size", self.ship_box_size))
         self.move_to_initial = bool(rospy.get_param("~move_to_initial", True))
 
